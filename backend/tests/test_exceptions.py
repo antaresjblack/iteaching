@@ -17,7 +17,14 @@ def _build_test_app() -> FastAPI:
     @test_app.get("/validation-error")
     def validation_error() -> None:
         raise RequestValidationError(
-            [{"type": "missing", "loc": ("query", "name"), "msg": "Field required", "input": None}]
+            [
+                {
+                    "type": "value_error",
+                    "loc": ("query", "contact"),
+                    "msg": "Invalid value",
+                    "input": "13800138000",
+                }
+            ]
         )
 
     @test_app.get("/unexpected-error")
@@ -47,7 +54,9 @@ async def test_validation_exception_uses_standard_response() -> None:
     body = response.json()
     assert body["code"] == 42200
     assert body["message"] == "Request validation failed"
-    assert body["data"][0]["loc"] == ["query", "name"]
+    assert body["data"][0]["loc"] == ["query", "contact"]
+    assert "input" not in body["data"][0]
+    assert "13800138000" not in response.text
 
 
 @pytest.mark.asyncio

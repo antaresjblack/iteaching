@@ -4,5 +4,29 @@ Import future model classes here so Alembic can discover them through Base.metad
 """
 
 from app.models.base import TimestampMixin
+from app.models.entities import (
+    Course,
+    DimensionScore,
+    Evaluation,
+    EvaluationReview,
+    ImprovementSuggestion,
+    ProcessingTask,
+    Recording,
+    ScoreCalibration,
+    TranscriptSegment,
+    User,
+)
 
-__all__ = ["TimestampMixin"]
+__all__ = [
+    "Course",
+    "DimensionScore",
+    "Evaluation",
+    "EvaluationReview",
+    "ImprovementSuggestion",
+    "ProcessingTask",
+    "Recording",
+    "ScoreCalibration",
+    "TimestampMixin",
+    "TranscriptSegment",
+    "User",
+]

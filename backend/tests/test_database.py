@@ -10,6 +10,16 @@ def test_alembic_check_creates_missing_sqlite_parent_directory(tmp_path: Path) -
     environment = os.environ.copy()
     environment["DATABASE_URL"] = f"sqlite:///{database_path.as_posix()}"
 
+    upgrade = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=backend_dir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert upgrade.returncode == 0, upgrade.stdout + upgrade.stderr
+
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
         cwd=backend_dir,

@@ -1,68 +1,32 @@
 # AI 赋能教学督导系统（后端）
 
-## 项目介绍
-
-AI 赋能教学督导系统（AI Teaching Supervision System）面向教学督导和教师自监督场景。系统后续将围绕课堂录音处理、师生发言识别、BOPPPS 教学评价、人工督导评价和教学改进跟踪展开。
-
-当前项目只是后端基础框架，尚未实现完整业务流程，也不会调用任何 AI 模型或第三方大模型 API。仓库中的 AI 模块目前只有抽象接口，用于约束后续实现。
+该后端覆盖账号与课程权限、隐私授权录音上传、AI 处理任务协议、评价展示、督导评语与分数校准、改进建议和历史对比。AI 模型由其他成员通过独立进程接入；本项目不执行转写、说话人识别或模型评分。
 
 ## 技术栈
 
-- Python 3.11+
-- FastAPI、Uvicorn
-- Pydantic v2、pydantic-settings
-- SQLAlchemy 2.x、Alembic
+- Python 3.11+、FastAPI、Pydantic v2
+- SQLAlchemy 2.x、Alembic、SQLite（开发默认）
 - PyJWT、passlib、bcrypt
-- pytest、pytest-asyncio、httpx
-- Ruff、Black
-- SQLite（开发默认，可切换 MySQL 或 PostgreSQL）
-
-本阶段没有引入 PyTorch、TensorFlow、Whisper、Transformers、pyannote、Celery 或 Redis。
+- pytest、httpx、Ruff、Black
+- 上传格式由 `ffprobe` 校验，需要本机安装 FFmpeg 工具集
 
 ## 目录结构
 
 ```text
 backend/
-├── app/
-│   ├── api/                 # HTTP 路由、版本管理和依赖注入
-│   │   └── v1/endpoints/    # v1 端点实现
-│   ├── core/                # 配置、日志、异常和安全工具
-│   ├── db/                  # SQLAlchemy Base、Engine 和 Session
-│   ├── models/              # SQLAlchemy 业务模型（当前仅基础混入类）
-│   ├── schemas/             # Pydantic 请求/响应模型与统一响应结构
-│   ├── repositories/        # 数据访问层，禁止 Router 直接操作数据库
-│   ├── services/            # 业务逻辑层
-│   ├── ai/interfaces/       # ASR、说话人、BOPPPS、建议生成抽象接口
-│   ├── storage/             # 文件存储抽象接口
-│   ├── tasks/               # 耗时任务编排预留
-│   ├── utils/               # 通用无状态工具预留
-│   └── main.py              # FastAPI 应用组装入口
-├── alembic/                 # 数据库迁移环境与版本目录
-├── tests/                   # pytest 测试
-├── .env.example             # 环境变量示例
-├── requirements.txt         # 运行依赖
-├── requirements-dev.txt     # 开发和测试依赖
-└── pyproject.toml           # Python、pytest、Black、Ruff 配置
+├── app/api/                 # HTTP 路由、依赖和鉴权
+├── app/core/                # 配置、日志、异常和安全工具
+├── app/db/                  # SQLAlchemy 引擎、Session 与 Base
+├── app/models/              # 用户、课程、录音、任务、评价和督导模型
+├── app/schemas/             # 请求、响应与 AI 结果契约
+├── app/services/            # 音频校验、隐私遮蔽和建议规则
+├── app/ai/interfaces/       # 与模型实现解耦的 AI 抽象接口
+├── alembic/versions/        # 数据库迁移
+├── docs/                    # Worker 联调协议
+└── tests/                   # 自动化测试
 ```
 
-项目依赖方向统一为：
-
-```text
-API / Router -> Service -> Repository -> Database
-```
-
-- `api`：接收请求、参数验证、调用 Service、返回统一响应。
-- `core`：承载跨模块配置、日志、异常处理和安全能力。
-- `db`：创建数据库引擎、会话工厂和声明式 Base。
-- `models`：存放未来的 User、Course、AudioRecord、Evaluation 等数据库模型。
-- `schemas`：定义 API 输入输出，不承担数据库访问。
-- `repositories`：封装数据库读写，供 Service 使用。
-- `services`：编排业务规则和 Repository，不依赖 HTTP 细节。
-- `ai`：隔离 AI 能力契约；当前没有模型实现或模型调用。
-- `storage`：隔离本地磁盘、MinIO、OSS、S3 等未来存储实现。
-- `tasks`：预留录音识别、说话人识别和教学分析等耗时任务的编排位置。
-
-## 安装
+## 安装、配置和启动
 
 以下命令在 Windows PowerShell 中执行：
 
@@ -70,64 +34,44 @@ API / Router -> Service -> Repository -> Database
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
-python -m pip install -r requirements.txt
-```
-
-需要运行测试和代码质量工具时，安装开发依赖：
-
-```powershell
 python -m pip install -r requirements-dev.txt
-```
-
-## 配置
-
-复制示例配置后按环境修改：
-
-```powershell
 Copy-Item .env.example .env
 ```
 
-没有 `.env` 时也可以使用开发默认值启动。主要变量包括应用信息、API 前缀、监听地址、数据库 URL、JWT、安全时长、上传目录、上传大小、日志级别和 CORS 来源。
-
-`CORS_ORIGINS` 可使用 JSON 数组或逗号分隔字符串，例如：
-
-```dotenv
-CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
-# 或：CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-```
-
-开发默认数据库是 `sqlite:///./data/app.db`。切换 MySQL 或 PostgreSQL 时，需要安装对应 SQLAlchemy 驱动，并在 `.env` 中替换 `DATABASE_URL`。生产环境必须设置随机且至少 32 字节的 `JWT_SECRET_KEY`。
-
-## 启动
-
-在 `backend/` 目录执行：
+在 `.env` 中为 `INITIAL_ADMIN_PASSWORD` 设置强密码，并替换 `JWT_SECRET_KEY` 和 `AI_SERVICE_TOKEN`。生产环境会拒绝默认或短密钥，并要求配置首个管理员密码。首次启动且管理员尚不存在时，后端会按该配置创建管理员；不设置管理员密码则不会创建默认账号。上传目录默认为 `./uploads`，不应映射为静态公开目录。
 
 ```powershell
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-也可使用配置中的监听地址和端口：
+健康检查：`http://127.0.0.1:8000/api/v1/health`；Swagger：`http://127.0.0.1:8000/docs`；OpenAPI：`http://127.0.0.1:8000/openapi.json`。
 
-```powershell
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+## 已实现接口
 
-启动后可访问：
+所有 JSON 响应采用 `code/message/data` 包装。
 
-- 健康检查：`http://127.0.0.1:8000/api/v1/health`
-- Swagger：`http://127.0.0.1:8000/docs`
-- ReDoc：`http://127.0.0.1:8000/redoc`
+- `POST /api/v1/auth/login`、`GET /api/v1/auth/me`：登录和当前用户。
+- `GET/POST /api/v1/users`：管理员查看和创建账号。
+- `GET/POST /api/v1/courses`、`GET /api/v1/courses/{id}`：课程创建、教师分配和按角色隔离访问。
+- `POST /api/v1/courses/{id}/recordings`：上传 WAV、MP3 或 M4A。要求录制时间和明确授权确认，在 multipart 解析前限制整个请求体，并分块写入私有目录；POSIX 系统目录/文件权限为 `0700`/`0600`，Windows 部署应通过 NTFS ACL 限定服务账号访问。使用 `ffprobe` 检查容器、音频流和真实格式。
+- `GET /api/v1/recordings/{id}/status`：轮询 `QUEUED`、`PROCESSING`、`SUCCEEDED`、`FAILED`。
+- `GET /api/v1/recordings/{id}/audio`、`DELETE /api/v1/recordings/{id}`：按课程权限读取原始音频，或删除音频及关联任务、转写、评价、建议、评语和校准记录。
+- `/api/v1/internal/tasks/*`：AI Worker 领取任务、下载音频、续租、回传结果或失败；需要服务令牌和领取返回的任务令牌。
+- `GET /api/v1/recordings/{id}/evaluation`、`GET /api/v1/evaluations/{id}`：单次评价详情。
+- `GET /api/v1/courses/{id}/evaluations`：课程历史评价分页查询。
+- `GET /api/v1/courses/{id}/comparison`：最近两次已完成课堂的总分及 BOPPPS 六维变化。
+- `POST /api/v1/evaluations/{id}/reviews`、`POST /api/v1/evaluations/{id}/calibrations`：督导追加评语和人工校准；教师只读。
 
-## 数据库迁移
+角色权限：管理员可管理全部数据并创建账号；督导创建课程并只能访问自己负责的课程；教师只能访问分配给自己的课程。所有录音、评价和历史接口均检查课程归属。
 
-创建新模型后，先在 `app/models/__init__.py` 中导入模型，再执行：
+AI Worker 请求/响应样例、结果字段及重试协议见 [docs/ai-worker-integration.md](docs/ai-worker-integration.md)。
 
-```powershell
-alembic revision --autogenerate -m "describe change"
-alembic upgrade head
-```
+## 隐私和结果约定
 
-当前阶段没有创建业务表，因此迁移版本目录为空。
+后端保存授权确认时间与版本。音频仅通过带权限检查的接口读取，删除录音会一并删除其业务数据。评价原始模型结果保存在数据库中，但不会通过标准评价接口返回。标准接口对常见手机号、邮箱和中国身份证号做基础规则遮蔽；规则遮蔽不能保证识别所有个人信息。
+
+`basic` 结果允许暂缺六维分数；`boppps` 结果必须提交导入、目标、前测、参与式学习、后测、总结六项 0–100 分数。未由 AI 提交建议时，后端根据教学问题和低于 60 分的维度生成最多三条固定模板建议。
 
 ## 测试与代码质量
 
@@ -136,34 +80,8 @@ pytest
 ruff check .
 black --check .
 python -m compileall app
+alembic upgrade head
+alembic check
 ```
 
-## 当前 API
-
-### `GET /api/v1/health`
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "status": "ok"
-  }
-}
-```
-
-## 异步任务预留
-
-当前 `app/tasks/` 仅为空模块。后续可先用 FastAPI `BackgroundTasks` 处理轻量后台操作；录音识别、说话人识别和 BOPPPS 分析等长耗时、需要重试或横向扩展的任务，再按实际需求引入 Celery + Redis。本阶段不安装这两项依赖。
-
-## 后续计划
-
-- 课堂录音上传和存储实现
-- ASR 语音识别
-- 说话人识别与教师/学生发言区分
-- BOPPPS 六维教学评分、证据和问题分析
-- 督导人工评价
-- 教师自监督流程
-- 个性化教学改进建议
-- 历史课堂评价对比
-- 教学改进效果跟踪
+模拟 Worker 测试仅证明后端契约和流程，不代表真实转写准确率或评价有效性。后两项需在接入其他成员的模型后共同验收。

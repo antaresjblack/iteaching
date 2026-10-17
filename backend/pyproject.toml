@@ -17,7 +17,7 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --basetemp=.pytest-tmp"
+addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
