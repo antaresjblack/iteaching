@@ -1,0 +1,45 @@
+/* 设计令牌：专业浅色 SaaS 风格，主色深青蓝 */
+
+:root {
+  /* 品牌色 */
+  --brand: #175e6b;
+  --brand-deep: #0e4650;
+  --brand-soft: #e8eff0;
+
+  /* 中性色 */
+  --bg-page: #f4f6f7;
+  --surface: #ffffff;
+  --border: #dce3e6;
+  --border-strong: #c3cdd1;
+
+  --text-primary: #1f2a33;
+  --text-secondary: #5c6b73;
+  --text-placeholder: #93a1a8;
+
+  /* 语义色（蓝色=进行中/信息，绿色=成功，橙色=警告，红色=失败，灰色=禁用/无数据） */
+  --info: #3a6ea5;
+  --success: #2e9e6b;
+  --warning: #c77700;
+  --danger: #c0392b;
+  --muted: #8a9499;
+
+  /* 说话人角色色（低饱和度） */
+  --role-teacher: #3a6ea5;
+  --role-student: #3e8e6e;
+  --role-unknown: #8a9499;
+
+  /* Element Plus 主色映射到品牌色（含浅色梯度） */
+  --el-color-primary: var(--brand);
+  --el-color-primary-light-3: #5d8e97;
+  --el-color-primary-light-5: #8bafb5;
+  --el-color-primary-light-7: #b9cfd3;
+  --el-color-primary-light-8: #d1dfe1;
+  --el-color-primary-light-9: #e8eff0;
+  --el-color-primary-dark-2: #124b56;
+
+  /* 基础圆角与阴影（≤8px，克制） */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow-sm: 0 1px 2px rgba(15, 34, 41, 0.06);
+  --shadow-md: 0 2px 8px rgba(15, 34, 41, 0.08);
+}

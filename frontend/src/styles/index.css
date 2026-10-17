@@ -1,0 +1,117 @@
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family:
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    'Segoe UI',
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--brand-deep);
+}
+
+/* 数字（分数/时长）使用等宽数字，避免跳动 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 页面容器：内容区最大宽度，避免宽屏拉伸 */
+.page {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.page-subtitle {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 分区标题 */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 24px 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+
+/* 状态与提示通用 */
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* 响应式：移动端 375px 起，避免横向溢出 */
+@media (max-width: 640px) {
+  .page {
+    padding: 12px 12px 40px;
+  }
+
+  .page-title {
+    font-size: 16px;
+  }
+}
