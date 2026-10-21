@@ -5,10 +5,14 @@ from app.services.recordings import effective_scores
 
 
 def evaluation(missing=True):
-    return NS(overall_score=None if missing else 80, calibrations=[], dimension_scores=[
-        NS(dimension=key, score=None if missing and index == 0 else 80)
-        for index, key in enumerate(DIMENSION_KEYS)
-    ])
+    return NS(
+        overall_score=None if missing else 80,
+        calibrations=[],
+        dimension_scores=[
+            NS(dimension=key, score=None if missing and index == 0 else 80)
+            for index, key in enumerate(DIMENSION_KEYS)
+        ],
+    )
 
 
 def calibration(id, dimensions=None, overall=None):
@@ -31,7 +35,10 @@ def test_remaining_missing_dimension_keeps_total_empty():
 
 def test_latest_dimension_calibration_and_zero_are_used():
     item = evaluation(False)
-    item.calibrations = [calibration(1, {DIMENSION_KEYS[0]: 50}), calibration(2, {DIMENSION_KEYS[0]: 0})]
+    item.calibrations = [
+        calibration(1, {DIMENSION_KEYS[0]: 50}),
+        calibration(2, {DIMENSION_KEYS[0]: 0}),
+    ]
     assert effective_scores(item)[0] == 66.67
 
 
@@ -48,5 +55,9 @@ def test_no_calibration_keeps_original_total():
 
 def test_new_dimension_edit_supersedes_older_explicit_total():
     item = evaluation()
-    item.calibrations = [calibration(1, overall=0), calibration(2, {DIMENSION_KEYS[0]: 50}), calibration(3)]
+    item.calibrations = [
+        calibration(1, overall=0),
+        calibration(2, {DIMENSION_KEYS[0]: 50}),
+        calibration(3),
+    ]
     assert effective_scores(item)[0] == 75
