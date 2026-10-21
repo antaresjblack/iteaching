@@ -1,0 +1,24 @@
+/** 角色判断与展示工具：权限逻辑集中在此，模板中不做散落判断 */
+import type { UserRead } from '@/types/auth'
+import type { CourseRead } from '@/types/course'
+
+export const ROLE_LABELS: Record<UserRead['role'], string> = {
+  admin: '管理员',
+  supervisor: '督导',
+  teacher: '教师',
+}
+
+export function roleLabel(role: UserRead['role']): string {
+  return ROLE_LABELS[role]
+}
+
+export function isAdmin(user: UserRead | null | undefined): boolean {
+  return user?.role === 'admin'
+}
+
+/** 能否对课程的评价写评语/校准：管理员，或该课程的指定督导 */
+export function canReviewCourse(user: UserRead | null | undefined, course: CourseRead | null | undefined): boolean {
+  if (!user) return false
+  if (user.role === 'admin') return true
+  return user.role === 'supervisor' && !!course && course.supervisor_id === user.id
+}

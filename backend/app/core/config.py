@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("uploads")
     max_upload_size_mb: int = Field(default=500, gt=0)
     ai_service_token: str = "development-ai-service-token-change-me"
+    audio_public_base_url: str = ""
+    audio_signing_key: str = ""
+    audio_url_ttl_seconds: int = Field(default=7200, ge=300, le=86400)
     task_lease_seconds: int = Field(default=300, ge=30, le=3600)
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     initial_admin_username: str = "admin"

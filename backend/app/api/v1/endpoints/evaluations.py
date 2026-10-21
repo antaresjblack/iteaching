@@ -100,10 +100,16 @@ def compare_recent_classes(
     latest, previous = evaluations
     latest_overall, latest_dimensions = effective_scores(latest)
     previous_overall, previous_dimensions = effective_scores(previous)
+    latest_rubric = latest.raw_result.get("rubric_version") or "legacy-v1"
+    previous_rubric = previous.raw_result.get("rubric_version") or "legacy-v1"
+    comparable = latest_rubric == previous_rubric and latest.mode == previous.mode
     return {
         "code": 0,
         "message": "success",
         "data": {
+            "comparable": comparable,
+            "reason": None if comparable else "Evaluation rubrics or modes differ",
+            "score_source": "effective_scores_including_supervisor_calibrations",
             "latest": {
                 "evaluation_id": latest.id,
                 "recording_id": latest.recording_id,
@@ -119,11 +125,17 @@ def compare_recent_classes(
                 "dimension_scores": previous_dimensions,
             },
             "delta": {
-                "overall_score": latest_overall - previous_overall,
+                "overall_score": (
+                    latest_overall - previous_overall
+                    if comparable and latest_overall is not None and previous_overall is not None
+                    else None
+                ),
                 "dimension_scores": {
                     key: (
                         latest_dimensions[key] - previous_dimensions[key]
-                        if key in latest_dimensions and key in previous_dimensions
+                        if comparable
+                        and latest_dimensions.get(key) is not None
+                        and previous_dimensions.get(key) is not None
                         else None
                     )
                     for key in DIMENSION_KEYS

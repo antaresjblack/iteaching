@@ -67,6 +67,7 @@ class TaskClaimRequest(BaseModel):
 
 
 class TaskFailureRequest(BaseModel):
+    retryable: bool = True
     reason: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
@@ -91,30 +92,55 @@ class SuggestionInput(BaseModel):
 
     text: Annotated[str, Field(min_length=1, max_length=2000)]
 
-    @field_validator("text", mode="before")
+    @model_validator(mode="before")
     @classmethod
     def accept_plain_text(cls, value: object) -> object:
         return {"text": value} if isinstance(value, str) else value
 
 
+class IndicatorEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    segment_id: Annotated[str, Field(min_length=1, max_length=80)]
+    quote: Annotated[str, Field(min_length=1, max_length=10000)]
+
+
+class IndicatorResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: Dimension
+    status: Literal["evaluated", "insufficient_evidence"]
+    score: Score | None
+    reason: Annotated[str, Field(min_length=1, max_length=10000)]
+    evidence: list[IndicatorEvidence] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> IndicatorResult:
+        if self.status == "evaluated" and (self.score is None or not self.evidence):
+            raise ValueError("evaluated indicator requires score and evidence")
+        if self.status == "insufficient_evidence" and (self.score is not None or self.evidence):
+            raise ValueError("insufficient evidence must not have a score or evidence")
+        return self
+
+
 class EvaluationResultInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1]
+    version: Literal[1, 2]
+    rubric_version: Annotated[str | None, Field(max_length=100)] = None
+    indicators: list[IndicatorResult] = Field(default_factory=list, max_length=6)
     mode: Literal["basic", "boppps"]
     transcript: Annotated[str, Field(max_length=500000)]
     segments: list[TranscriptSegmentInput] = Field(default_factory=list, max_length=20000)
-    overall_score: Score
+    overall_score: Score | None
     overall_evidence: Annotated[str, Field(min_length=1, max_length=20000)]
     problems: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
         default_factory=list, max_length=200
     )
-    dimension_scores: dict[str, Score] = Field(default_factory=dict)
+    dimension_scores: dict[str, Score | None] = Field(default_factory=dict)
     suggestions: list[SuggestionInput] = Field(default_factory=list, max_length=50)
 
     @field_validator("dimension_scores")
     @classmethod
-    def validate_dimension_names(cls, value: dict[str, float]) -> dict[str, float]:
+    def validate_dimension_names(cls, value: dict[str, float | None]) -> dict[str, float | None]:
         unknown = set(value) - set(DIMENSION_KEYS)
         if unknown:
             raise ValueError(f"unknown dimension(s): {', '.join(sorted(unknown))}")
@@ -124,6 +150,34 @@ class EvaluationResultInput(BaseModel):
     def validate_mode_dimensions(self) -> EvaluationResultInput:
         if self.mode == "boppps" and set(self.dimension_scores) != set(DIMENSION_KEYS):
             raise ValueError("boppps results require scores for all six dimensions")
+        if self.version == 1:
+            if self.overall_score is None or any(
+                score is None for score in self.dimension_scores.values()
+            ):
+                raise ValueError("version 1 requires numeric scores")
+        else:
+            if not self.rubric_version or not self.rubric_version.strip():
+                raise ValueError("version 2 requires rubric_version")
+            if len(self.indicators) != 6 or {i.id.value for i in self.indicators} != set(
+                DIMENSION_KEYS
+            ):
+                raise ValueError("version 2 requires six unique indicators")
+            expected = {i.id.value: i.score for i in self.indicators}
+            if self.dimension_scores != expected:
+                raise ValueError("dimension_scores must agree with indicators")
+            # No fabricated overall score when some dimensions are unobserved.
+            scores = list(expected.values())
+            overall = round(sum(scores) / 6, 2) if all(s is not None for s in scores) else None
+            if self.overall_score != overall:
+                raise ValueError("overall score must be six-dimension mean or null")
+            source = {f"s{n}": s.text for n, s in enumerate(self.segments, 1)}
+            for indicator in self.indicators:
+                for evidence in indicator.evidence:
+                    if (
+                        evidence.segment_id not in source
+                        or evidence.quote not in source[evidence.segment_id]
+                    ):
+                        raise ValueError("indicator evidence must quote transcript segment")
         return self
 
 

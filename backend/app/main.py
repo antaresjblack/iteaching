@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -22,8 +23,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+class AudioAccessFilter(logging.Filter):
+    def filter(self, record):
+        # Signed URLs are bearer capabilities; never log their query strings.
+        return "/audio-signed" not in record.getMessage()
+
+
 def create_application() -> FastAPI:
     setup_logging(settings.log_level)
+    logging.getLogger("uvicorn.access").addFilter(AudioAccessFilter())
 
     application = FastAPI(
         title=settings.app_name,

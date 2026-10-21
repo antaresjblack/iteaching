@@ -1,0 +1,38 @@
+# Local secrets (keep configuration templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+# Python / Node dependencies and generated output
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+*.tsbuildinfo
+.coverage
+htmlcov/
+# Private runtime data and recordings
+runtime/
+outputs/
+backend/data/
+backend/uploads/
+*.db
+*.db-*
+*.sqlite*
+*.log
+*.wav
+*.mp3
+*.m4a
+oss-test-url.txt
+.DS_Store
+.idea/

@@ -20,6 +20,7 @@ from app.models import (
     TranscriptSegment,
 )
 from app.schemas.business import EvaluationResultInput, TaskClaimRequest, TaskFailureRequest
+from app.services.audio_links import public_base, signature
 from app.services.recordings import redact_text
 
 router = APIRouter()
@@ -128,8 +129,68 @@ def claim_task(
             "attempt": task.attempts,
             "lease_expires_at": task.lease_expires_at,
             "audio_url": f"{settings.api_v1_prefix}/internal/tasks/{task.id}/audio",
+            "course_id": recording.course_id,
+            "recorded_at": recording.recorded_at,
+            "duration_seconds": recording.duration_seconds,
+            "original_filename": recording.original_filename,
         },
     }
+
+
+@router.get("/internal/tasks/audio-config", dependencies=[WorkerAuthorized])
+def audio_config():
+    public_base()
+    return {
+        "code": 0,
+        "message": "success",
+        "data": {"ttl_seconds": settings.audio_url_ttl_seconds},
+    }
+
+
+@router.post("/internal/tasks/{task_id}/audio-url", dependencies=[WorkerAuthorized])
+def create_audio_url(
+    task_id: str, db: DatabaseSession, x_task_claim_token: str | None = Header(default=None)
+):
+    base = public_base()
+    task = db.get(ProcessingTask, task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    _require_claim(task, x_task_claim_token)
+    if _lease_expired(task, datetime.now(UTC)):
+        raise HTTPException(409, "Task lease has expired")
+    expires = int(datetime.now(UTC).timestamp()) + settings.audio_url_ttl_seconds
+    url = (
+        f"{base}{settings.api_v1_prefix}/internal/tasks/{task.id}/audio-signed"
+        f"?expires={expires}&signature={signature(task, expires)}"
+    )
+    return {"code": 0, "message": "success", "data": {"audio_url": url, "expires": expires}}
+
+
+@router.get("/internal/tasks/{task_id}/audio-signed")
+def signed_audio(task_id: str, db: DatabaseSession, expires: int, signature: str):
+    from app.services.audio_links import signature as sign
+
+    task = db.get(ProcessingTask, task_id)
+    now = datetime.now(UTC)
+    if (
+        task is None
+        or not settings.audio_signing_key
+        or task.status != "PROCESSING"
+        or not task.claim_token
+        or expires <= int(now.timestamp())
+        or _lease_expired(task, now)
+        or not secrets.compare_digest(signature, sign(task, expires))
+    ):
+        raise HTTPException(403, "Invalid or expired audio link")
+    recording = db.get(Recording, task.recording_id)
+    path = Path(recording.storage_path) if recording else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "Audio file not found")
+    return FileResponse(
+        path,
+        media_type=recording.media_type,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
 
 
 @router.get("/internal/tasks/{task_id}/audio", dependencies=[WorkerAuthorized])
@@ -192,6 +253,10 @@ def submit_result(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     raw_result = body.model_dump(mode="json")
+    if body.version == 1:
+        # Preserve equality with results saved before the v2 contract existed.
+        raw_result.pop("rubric_version", None)
+        raw_result.pop("indicators", None)
     existing = db.scalar(select(Evaluation).where(Evaluation.recording_id == task.recording_id))
     if task.status == "SUCCEEDED" and existing is not None:
         if existing.raw_result == raw_result:
@@ -314,7 +379,9 @@ def submit_failure(
         raise HTTPException(status_code=404, detail="Task not found")
     _require_claim(task, x_task_claim_token)
     next_status = (
-        "FAILED" if task.attempts >= min(settings.task_max_attempts, MAX_ATTEMPTS) else "QUEUED"
+        "FAILED"
+        if not body.retryable or task.attempts >= min(settings.task_max_attempts, MAX_ATTEMPTS)
+        else "QUEUED"
     )
     result = db.execute(
         update(ProcessingTask)

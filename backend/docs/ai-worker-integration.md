@@ -1,5 +1,7 @@
 # AI 处理进程联调约定
 
+> 本文保留v1契约示例。现已增加v2契约：允许“依据不足”和空分数，支持结构化证据与评价标准版本。新Worker请参见 [v2接入说明](ai-worker-v2.md)。
+
 后端不调用或实现 ASR、说话人识别、BOPPPS 评分模型。AI 同学运行独立处理进程，通过 `AI_SERVICE_TOKEN` 调用内部 API。所有成功响应采用 `code/message/data` 包装；失败响应的 HTTP 状态码和 `message` 描述原因。
 
 ## 认证和领取任务

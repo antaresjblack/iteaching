@@ -88,18 +88,31 @@ def redact_text(text: str) -> str:
     return _CN_ID_RE.sub("[身份证号已遮蔽]", text)
 
 
-def effective_scores(evaluation: Evaluation) -> tuple[float, dict[str, float]]:
+def effective_scores(evaluation: Evaluation) -> tuple[float | None, dict[str, float | None]]:
     dimensions = {item.dimension: item.score for item in evaluation.dimension_scores}
     overall = evaluation.overall_score
+    explicit_overall = False
     for calibration in sorted(evaluation.calibrations, key=lambda item: item.id, reverse=True):
         if calibration.overall_score is not None:
             overall = calibration.overall_score
+            explicit_overall = True
+            break
+        if calibration.dimension_scores:
+            # 较新的维度调整取代旧人工总分；纯评语不影响评分优先级。
             break
     for dimension in DIMENSION_KEYS:
         for calibration in sorted(evaluation.calibrations, key=lambda item: item.id, reverse=True):
             if calibration.dimension_scores and dimension in calibration.dimension_scores:
                 dimensions[dimension] = calibration.dimension_scores[dimension]
                 break
+    # 最新评分操作指定总分时优先；否则从完整的生效六维计算。
+    if not explicit_overall and any(item.dimension_scores for item in evaluation.calibrations):
+        scores = [dimensions.get(key) for key in DIMENSION_KEYS]
+        overall = (
+            round(sum(scores) / len(scores), 2)
+            if all(score is not None for score in scores)
+            else None
+        )
     return overall, dimensions
 
 
@@ -124,7 +137,7 @@ def build_suggestions(evaluation: Evaluation) -> list[dict[str, str]]:
         (
             item
             for item in evaluation.dimension_scores
-            if item.score < 60 and item.dimension in DIMENSION_LABELS
+            if item.score is not None and item.score < 60 and item.dimension in DIMENSION_LABELS
         ),
         key=lambda item: (item.score, item.dimension),
     )
@@ -143,11 +156,31 @@ def build_suggestions(evaluation: Evaluation) -> list[dict[str, str]]:
 
 def serialize_evaluation(evaluation: Evaluation) -> dict[str, object]:
     effective_overall, effective_dimensions = effective_scores(evaluation)
+    observed = [
+        item["score"]
+        for item in evaluation.raw_result.get("indicators", [])
+        if item.get("status") == "evaluated" and item.get("score") is not None
+    ]
     return {
+        "observed_score": round(sum(observed) / len(observed), 2) if observed else None,
+        "observed_count": len(observed),
+        "dimension_count": 6,
         "id": evaluation.id,
         "recording_id": evaluation.recording_id,
         "version": evaluation.version,
         "mode": evaluation.mode,
+        "rubric_version": evaluation.raw_result.get("rubric_version") or "legacy-v1",
+        "indicators": [
+            {
+                **item,
+                "reason": redact_text(item["reason"]),
+                "evidence": [{**e, "quote": redact_text(e["quote"])} for e in item["evidence"]],
+            }
+            for item in evaluation.raw_result.get("indicators", [])
+        ],
+        "model_dimension_scores": {
+            item.dimension: item.score for item in evaluation.dimension_scores
+        },
         "transcript": redact_text(evaluation.transcript),
         "segments": [
             {

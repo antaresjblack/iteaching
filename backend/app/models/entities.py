@@ -96,7 +96,7 @@ class Evaluation(TimestampMixin, Base):
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
     raw_result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     transcript: Mapped[str] = mapped_column(Text, nullable=False)
-    overall_score: Mapped[float] = mapped_column(Float, nullable=False)
+    overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     overall_evidence: Mapped[str] = mapped_column(Text, nullable=False)
     problems: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
 
@@ -145,7 +145,7 @@ class DimensionScore(Base):
         ForeignKey("evaluations.id", ondelete="CASCADE"), index=True
     )
     dimension: Mapped[str] = mapped_column(String(40), nullable=False)
-    score: Mapped[float] = mapped_column(Float, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     evaluation: Mapped[Evaluation] = relationship(back_populates="dimension_scores")
 
