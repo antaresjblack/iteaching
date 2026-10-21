@@ -1,3 +1,4 @@
+/** 上传表单前端校验：文件必填/后缀白名单/体积上限、录制时间必填、隐私授权必须勾选 */
 import { describe, expect, it } from 'vitest'
 
 import { MAX_UPLOAD_SIZE_MB, validateUpload } from '@/utils/validateUpload'

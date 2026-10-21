@@ -1,3 +1,4 @@
+/** 路由权限守卫：未登录跳 /login 并回传 redirect、已登录访问 /login 跳首页、adminOnly 角色限制 */
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 

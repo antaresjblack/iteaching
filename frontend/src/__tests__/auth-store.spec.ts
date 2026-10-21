@@ -1,3 +1,4 @@
+/** 认证 store：登录写入内存与 localStorage、restore 恢复会话、无凭证保持未登录、logout 清空 */
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

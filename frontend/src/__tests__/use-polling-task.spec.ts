@@ -1,3 +1,4 @@
+/** usePollingTask 轮询组合式函数：满足停止条件置 done、抛错置 failed、超时置 timeout、stop 清理定时器 */
 import { describe, expect, it, vi } from 'vitest'
 
 import { usePollingTask } from '@/composables/usePollingTask'

@@ -1,3 +1,4 @@
+/** 人工校准组件：teacher 只读不渲染表单、supervisor 提交携带总分与说明、空表单被前端拦截 */
 import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'

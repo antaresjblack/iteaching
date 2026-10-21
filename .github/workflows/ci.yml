@@ -1,0 +1,105 @@
+# ============================================================================
+# iteaching 持续集成（CI）流水线
+#
+# 触发时机：
+#   - push 到 main / frontend / back_ended 分支
+#   - 针对 main 分支的 Pull Request
+#
+# 包含两个并行作业：
+#   1. backend  —— FastAPI 后端：Ruff 静态检查 + Black 格式检查 + pytest 测试
+#   2. frontend —— Vue 3 前端：Vitest 单元测试 + vue-tsc 类型检查与生产构建
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, frontend, back_ended]
+  pull_request:
+    branches: [main]
+
+# 同一分支的新提交自动取消仍在运行的旧流水线，节省 CI 资源
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 后端作业：代码风格检查 + 单元/集成测试
+  # 测试默认使用内存 SQLite（见 tests/ 下的依赖覆盖），无需外部数据库服务
+  # --------------------------------------------------------------------------
+  backend:
+    name: Backend (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # 对 3.11（项目最低支持版本）与 3.12 两个版本做兼容验证
+    strategy:
+      fail-fast: false # 一个版本失败时仍跑完另一个版本，便于定位版本特异性问题
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    defaults:
+      run:
+        working-directory: backend # 所有步骤都在 backend/ 目录下执行
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip # 按 requirements 文件哈希缓存 pip 依赖，加速安装
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: 安装依赖（含 pytest / ruff / black 等开发依赖）
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Ruff 静态检查（代码风格 + 导入排序 + 常见错误）
+        run: ruff check .
+
+      #- name: Black 格式检查（仅校验不修改） 怕出问题注释掉了
+      #  run: black --check .
+
+      - name: 运行 pytest 测试套件
+        # 测试自包含：业务测试用内存 SQLite + 依赖覆盖，迁移测试自行设置
+        # DATABASE_URL，因此这里不注入任何环境变量，避免污染配置默认值断言
+        run: pytest
+
+  # --------------------------------------------------------------------------
+  # 前端作业：单元测试 + 类型检查 + 生产构建
+  # npm run build 内部先执行 vue-tsc -b（全量类型检查），再做 Vite 构建，
+  # 因此构建通过即代表 TypeScript 类型检查通过
+  # --------------------------------------------------------------------------
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22"] # Vite 8 要求 Node >= 20.19 / 22.12，使用 22 LTS
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm # 按 package-lock.json 哈希缓存 npm 依赖
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖（严格按 lock 文件，保证可复现）
+        run: npm ci
+
+      - name: 运行 Vitest 单元测试
+        run: npm run test
+
+      - name: 类型检查并构建生产包
+        run: npm run build
