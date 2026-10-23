@@ -16,26 +16,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-import app.models  # noqa: F401
 from app.core.security import hash_password
-from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_application
-from app.models import Evaluation, ProcessingTask, TranscriptSegment, User
+from app.models import Admin, Evaluation, ProcessingTask, TranscriptSegment
 
 
 @pytest.mark.asyncio
-async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_full_supervision_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    testing_sessionmaker: sessionmaker[Session],
+    db_override: Callable[[], Iterator[Session]],
+) -> None:
     """端到端走通"上传 → AI 处理 → 校准 → 对比 → 重试 → 删除"完整业务闭环。"""
     from app.api.v1.endpoints import recordings as recording_endpoints
     from app.core.config import settings
@@ -55,33 +56,22 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
     monkeypatch.setattr(recording_endpoints, "probe_audio", fake_probe)
 
-    # 内存 SQLite + StaticPool：整个测试共享同一个连接，表结构不丢失
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    TestingSession = sessionmaker(bind=engine, expire_on_commit=False)
-    Base.metadata.create_all(engine)
+    # 共享夹具：内存 SQLite + StaticPool，会话供给函数来自 conftest.py
+    TestingSession = testing_sessionmaker
     # 预置 admin 账号（绕过 INITIAL_ADMIN_PASSWORD 初始化流程）
     with TestingSession() as session:
         session.add(
-            User(
+            Admin(
                 username="admin",
                 password_hash=hash_password("admin-password"),
-                role="admin",
                 is_active=True,
             )
         )
         session.commit()
 
     # 用测试会话覆盖 FastAPI 的数据库依赖
-    def override_db() -> Iterator[Session]:
-        with TestingSession() as session:
-            yield session
-
     application = create_application()
-    application.dependency_overrides[get_db] = override_db
+    application.dependency_overrides[get_db] = db_override
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -101,12 +91,23 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
                 "username": "supervisor",
                 "password": "supervisor-password",
                 "role": "supervisor",
+                "name": "王督导",
+                "level": "校级",
+                "department": "计算机学院",
+                "phone": "13800000001",
             },
         )
         teacher_create = await client.post(
             "/api/v1/users",
             headers=admin_headers,
-            json={"username": "teacher", "password": "teacher-password", "role": "teacher"},
+            json={
+                "username": "teacher",
+                "password": "teacher-password",
+                "role": "teacher",
+                "name": "李老师",
+                "department": "计算机学院",
+                "phone": "13800000002",
+            },
         )
         other_teacher_create = await client.post(
             "/api/v1/users",
@@ -115,11 +116,16 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
                 "username": "other_teacher",
                 "password": "other-teacher-password",
                 "role": "teacher",
+                "name": "赵老师",
+                "department": "数学学院",
             },
         )
         assert supervisor_create.status_code == teacher_create.status_code == 201
         assert other_teacher_create.status_code == 201
-
+        # 工号由系统生成：督导 1xxxx、教师 2xxxx，同角色内递增
+        assert supervisor_create.json()["data"]["employee_no"] == "10001"
+        assert teacher_create.json()["data"]["employee_no"] == "20001"
+        assert other_teacher_create.json()["data"]["employee_no"] == "20002"
         # 各角色分别登录；教师可读取自身信息，但无权访问用户管理列表
         supervisor_login = await client.post(
             "/api/v1/auth/login",
@@ -147,17 +153,143 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         course_response = await client.post(
             "/api/v1/courses",
             headers=supervisor_headers,
-            json={"name": "公开课", "teacher_id": teacher_create.json()["data"]["id"]},
+            json={
+                "code": "MATH-001",
+                "name": "公开课",
+                # 新版上课地址：教学楼 + 3 位教室编号
+                "location": "信息101",
+                "class_name": "2026 级数学 1 班",
+                "schedules": [
+                    {"weekday": 1, "start_time": "08:00", "end_time": "09:40"},
+                    # 按周批量录入：第 1-16 周 每周三 14:00-15:40
+                    {
+                        "weekday": 3,
+                        "start_time": "14:00",
+                        "end_time": "15:40",
+                        "start_week": 1,
+                        "end_week": 16,
+                    },
+                ],
+                "assessment_form": "percent",
+                "description": "公开课简介",
+                "teacher_id": teacher_create.json()["data"]["id"],
+                "teacher_name": "李老师",
+            },
         )
         assert course_response.status_code == 201
         course_id = course_response.json()["data"]["id"]
+        assert course_response.json()["data"]["code"] == "MATH-001"
+        # 后端以教师账号姓名为准覆盖快照（_resolve_teacher 回填 Teacher.name）
+        assert course_response.json()["data"]["teacher_name"] == "李老师"
+        assert course_response.json()["data"]["status"] == "not_started"
+        # 周次范围随时间段一并存储并回读
+        assert course_response.json()["data"]["schedules"][1]["end_week"] == 16
         assert (await client.get("/api/v1/courses", headers=teacher_headers)).status_code == 200
         other_course = await client.post(
             "/api/v1/courses",
             headers=supervisor_headers,
-            json={"name": "其他教师课程", "teacher_id": other_teacher_create.json()["data"]["id"]},
+            json={
+                "code": "MATH-002",
+                "name": "其他教师课程",
+                "location": "建筑",
+                "class_name": "2026 级数学 2 班",
+                "schedules": [{"weekday": 2, "start_time": "10:00", "end_time": "11:40"}],
+                "teacher_id": other_teacher_create.json()["data"]["id"],
+                "teacher_name": "赵老师",
+            },
         )
         assert other_course.status_code == 201
+
+        # 编号唯一冲突 → 409；时间段非法 → 422；教师未匹配（缺少 teacher_id）→ 422
+        duplicate = await client.post(
+            "/api/v1/courses",
+            headers=supervisor_headers,
+            json={
+                "code": "MATH-001",
+                "name": "重复编号",
+                "location": "信息",
+                "class_name": "2026 级数学 1 班",
+                "schedules": [{"weekday": 1, "start_time": "08:00", "end_time": "09:40"}],
+                "teacher_id": teacher_create.json()["data"]["id"],
+                "teacher_name": "李老师",
+            },
+        )
+        assert duplicate.status_code == 409
+        invalid_schedule = await client.post(
+            "/api/v1/courses",
+            headers=supervisor_headers,
+            json={
+                "code": "MATH-003",
+                "name": "时间段非法",
+                "location": "信息",
+                "class_name": "2026 级数学 1 班",
+                "schedules": [{"weekday": 1, "start_time": "10:00", "end_time": "09:40"}],
+                "teacher_id": teacher_create.json()["data"]["id"],
+                "teacher_name": "李老师",
+            },
+        )
+        assert invalid_schedule.status_code == 422
+        # 周次必须成对出现：只填 start_week 也应被拒绝
+        partial_week = await client.post(
+            "/api/v1/courses",
+            headers=supervisor_headers,
+            json={
+                "code": "MATH-005",
+                "name": "周次不成对",
+                "location": "信息",
+                "class_name": "2026 级数学 1 班",
+                "schedules": [
+                    {"weekday": 1, "start_time": "08:00", "end_time": "09:40", "start_week": 3}
+                ],
+                "teacher_id": teacher_create.json()["data"]["id"],
+                "teacher_name": "李老师",
+            },
+        )
+        assert partial_week.status_code == 422
+        # teacher_id 为空：Schema 校验器拦截，返回 422
+        no_teacher = await client.post(
+            "/api/v1/courses",
+            headers=supervisor_headers,
+            json={
+                "code": "MATH-004",
+                "name": "未匹配教师课程",
+                "location": "生医",
+                "class_name": "2026 级数学 3 班",
+                "schedules": [{"weekday": 5, "start_time": "08:00", "end_time": "09:40"}],
+                "teacher_name": "未入库教师",
+            },
+        )
+        assert no_teacher.status_code == 422
+        # 教师模糊搜索接口：命中字段含姓名、院系、工号
+        teacher_search = await client.get(
+            "/api/v1/teachers?keyword=%E6%9D%8E%E8%80%81%E5%B8%88&limit=5",
+            headers=supervisor_headers,
+        )
+        assert teacher_search.status_code == 200
+        teacher_search_data = teacher_search.json()["data"]
+        assert len(teacher_search_data) >= 1
+        assert teacher_search_data[0]["name"] == "李老师"
+
+        # 列表筛选：地点 + 任一时间段匹配（周三 14:30 命中），状态与星期过滤生效
+        filtered = await client.get(
+            "/api/v1/courses?location=%E4%BF%A1%E6%81%AF&weekday=3&time=14:30",
+            headers=teacher_headers,
+        )
+        assert [item["id"] for item in filtered.json()["data"]] == [course_id]
+        assert (await client.get("/api/v1/courses?weekday=2", headers=supervisor_headers)).json()[
+            "data"
+        ][0]["code"] == "MATH-002"
+        assert (
+            await client.get("/api/v1/courses?status=in_progress", headers=teacher_headers)
+        ).json()["data"] == []
+        # 督导可编辑课程状态
+        updated = await client.patch(
+            f"/api/v1/courses/{course_id}",
+            headers=supervisor_headers,
+            json={"status": "in_progress"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["data"]["status"] == "in_progress"
         assert (
             await client.get(
                 f"/api/v1/courses/{other_course.json()['data']['id']}", headers=teacher_headers
@@ -343,7 +475,14 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         # --------------------------------------------------------------
         # 8. 督导校准与评语：教师尝试校准 → 403；督导校准总分与维度分 → 201；
         #    督导追加人工评语 → 201
+        #    （督导需先将该音频关联为本人听课任务，才具备复核权限）
         # --------------------------------------------------------------
+        link = await client.post(
+            f"/api/v1/courses/{course_id}/supervision-links",
+            headers=supervisor_headers,
+            json={"recording_id": recording_id},
+        )
+        assert link.status_code == 201
         teacher_calibration = await client.post(
             f"/api/v1/evaluations/{evaluation_id}/calibrations",
             headers=teacher_headers,
@@ -367,6 +506,93 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
             json={"comment": "下一次课堂增加学生表达机会"},
         )
         assert review.status_code == 201
+
+        # --------------------------------------------------------------
+        # 8.1 督导端复听与关联能力：
+        #   a) 课程音频列表区分上传者角色（教师音频督导只读）；
+        #   b) 重复关联同一音频幂等（200 且返回已有关联）；
+        #   c) 我查过的课按课程去重并带最近关联时间，支持四条件筛选；
+        #   d) 督导不可删除教师上传的音频；
+        #   e) 本人修改密码后旧密码失效，管理员可强制重置密码。
+        # --------------------------------------------------------------
+        course_recordings = await client.get(
+            f"/api/v1/courses/{course_id}/recordings", headers=supervisor_headers
+        )
+        assert course_recordings.status_code == 200
+        listed = course_recordings.json()["data"]
+        assert listed[0]["uploaded_by_role"] == "teacher"
+        assert listed[0]["description"] is None
+
+        duplicate_link = await client.post(
+            f"/api/v1/courses/{course_id}/supervision-links",
+            headers=supervisor_headers,
+            json={"recording_id": recording_id},
+        )
+        assert duplicate_link.status_code == 200
+        assert duplicate_link.json()["data"]["id"] == link.json()["data"]["id"]
+
+        my_courses = await client.get("/api/v1/supervisions/my-courses", headers=supervisor_headers)
+        assert my_courses.status_code == 200
+        assert [item["id"] for item in my_courses.json()["data"]] == [course_id]
+        assert my_courses.json()["data"][0]["last_linked_at"]
+        no_match = await client.get(
+            "/api/v1/supervisions/my-courses",
+            headers=supervisor_headers,
+            params={"teacher_name": "不存在的教师"},
+        )
+        assert no_match.json()["data"] == []
+        assert (
+            await client.get("/api/v1/supervisions/my-courses", headers=teacher_headers)
+        ).status_code == 403
+
+        assert (
+            await client.delete(f"/api/v1/recordings/{recording_id}", headers=supervisor_headers)
+        ).status_code == 403
+
+        wrong_old = await client.post(
+            "/api/v1/auth/password",
+            headers=supervisor_headers,
+            json={"old_password": "wrong-password", "new_password": "supervisor-new-password"},
+        )
+        assert wrong_old.status_code == 400
+        assert (
+            await client.post(
+                "/api/v1/auth/password",
+                headers=supervisor_headers,
+                json={
+                    "old_password": "supervisor-password",
+                    "new_password": "supervisor-new-password",
+                },
+            )
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/api/v1/auth/login",
+                json={"username": "supervisor", "password": "supervisor-password"},
+            )
+        ).status_code == 401
+        relogin = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "supervisor", "password": "supervisor-new-password"},
+        )
+        assert relogin.status_code == 200
+        supervisor_headers = {"Authorization": f"Bearer {relogin.json()['data']['access_token']}"}
+
+        supervisor_id = supervisor_create.json()["data"]["id"]
+        assert (
+            await client.post(
+                f"/api/v1/users/{supervisor_id}/reset-password",
+                headers=admin_headers,
+                params={"role": "supervisor"},
+                json={"new_password": "supervisor-reset-password"},
+            )
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/api/v1/auth/login",
+                json={"username": "supervisor", "password": "supervisor-reset-password"},
+            )
+        ).status_code == 200
 
         # --------------------------------------------------------------
         # 9. 历史与对比：历史记录采用校准后的 82 分；上传第二次课堂（78 分）
@@ -477,7 +703,5 @@ async def test_full_supervision_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         assert session.get(ProcessingTask, task_id) is None
         assert session.query(TranscriptSegment).filter_by(evaluation_id=evaluation_id).count() == 0
 
-    # 清理：解除依赖覆盖、删表、释放连接
+    # 清理：解除依赖覆盖（内存 SQLite 随夹具结束自动释放，无需手动删表）
     application.dependency_overrides.clear()
-    Base.metadata.drop_all(engine)
-    engine.dispose()

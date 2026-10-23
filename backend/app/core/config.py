@@ -43,6 +43,22 @@ class Settings(BaseSettings):
     initial_admin_password: str = ""
     consent_version: str = "2026-01"
 
+    # 学期起始日期（MM.DD 格式），用于"按周批量"模式中显示教学周起点
+    # 春季学期通常 3 月 1 日开始，秋季学期通常 8 月 31 日开始
+    spring_semester_start: str = "03.01"
+    autumn_semester_start: str = "08.31"
+
+    @field_validator("spring_semester_start", "autumn_semester_start")
+    @classmethod
+    def validate_semester_start(cls, value: str) -> str:
+        parts = value.strip().split(".")
+        if len(parts) != 2:
+            raise ValueError("Semester start must be MM.DD (e.g. 03.01)")
+        month, day = int(parts[0]), int(parts[1])
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            raise ValueError(f"Invalid date: {value}")
+        return value
+
     log_level: str = "INFO"
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]

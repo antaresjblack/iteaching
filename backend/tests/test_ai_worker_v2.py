@@ -8,16 +8,20 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_application
-from app.models import Course, ProcessingTask, Recording, User
+from app.models import (
+    Course,
+    ProcessingTask,
+    Recording,
+    SupervisionLink,
+    Supervisor,
+    Teacher,
+)
 from app.schemas.business import EvaluationResultInput
 
 for parent in Path(__file__).resolve().parents:
@@ -111,24 +115,47 @@ def test_invalid_evidence_and_mismatched_scores():
 
 
 @pytest.fixture
-def backend(tmp_path, monkeypatch):
+def backend(
+    tmp_path,
+    monkeypatch,
+    testing_sessionmaker: sessionmaker[Session],
+    db_override,
+):
     monkeypatch.setenv("AI_AUDIO_STORAGE", "signed_backend")
     monkeypatch.setenv("AI_WORKER_STATE_DIR", str(tmp_path / "worker-state"))
     monkeypatch.setattr(settings, "ai_service_token", "worker-test-token")
     monkeypatch.setattr(settings, "audio_public_base_url", "https://audio.example.com")
     monkeypatch.setattr(settings, "audio_signing_key", "test-key-" * 8)
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = testing_sessionmaker
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"fake-audio")
     with sessions() as db:
-        user = User(username="admin", password_hash="unused", role="admin", is_active=True)
-        db.add(user)
+        supervisor = Supervisor(
+            username="supervisor",
+            password_hash="unused",
+            is_active=True,
+            employee_no="20001",
+            name="测试督导",
+            level="校级",
+        )
+        teacher = Teacher(
+            username="teacher",
+            password_hash="unused",
+            is_active=True,
+            employee_no="20002",
+            name="测试教师",
+        )
+        db.add_all([supervisor, teacher])
         db.flush()
-        course = Course(name="测试课堂", supervisor_id=user.id, teacher_id=user.id)
+        course = Course(
+            code="C-001",
+            name="测试课堂",
+            location="教学楼 A101",
+            class_name="2026 级 1 班",
+            schedules=[{"weekday": 1, "start_time": "08:00", "end_time": "09:40"}],
+            teacher_id=teacher.id,
+            teacher_name="测试教师",
+        )
         db.add(course)
         db.flush()
         course_id = course.id
@@ -137,7 +164,7 @@ def backend(tmp_path, monkeypatch):
                 Recording(
                     id=f"r{n}",
                     course_id=course.id,
-                    uploaded_by_id=user.id,
+                    uploaded_by_id=teacher.id,
                     storage_path=str(audio),
                     original_filename="a.wav",
                     media_type="audio/wav",
@@ -148,15 +175,16 @@ def backend(tmp_path, monkeypatch):
                 )
             )
             db.add(ProcessingTask(id=f"t{n}", recording_id=f"r{n}", status="QUEUED", attempts=0))
+            # 督导需与音频建立听课关联，才具备复核（校准/评语）权限
+            db.add(
+                SupervisionLink(
+                    course_id=course.id, supervisor_id=supervisor.id, recording_id=f"r{n}"
+                )
+            )
         db.commit()
     app = create_application()
-
-    def database():
-        with sessions() as db:
-            yield db
-
-    app.dependency_overrides[get_db] = database
-    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = db_override
+    app.dependency_overrides[get_current_user] = lambda: supervisor
     client = TestClient(app)
 
     class Adapter:
@@ -183,7 +211,6 @@ def backend(tmp_path, monkeypatch):
 
     yield client, Adapter(), course_id
     client.close()
-    engine.dispose()
 
 
 def test_worker_roundtrip_null_scores_calibration_and_history(backend):

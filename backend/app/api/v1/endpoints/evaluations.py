@@ -4,7 +4,14 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DatabaseSession
 from app.api.v1.endpoints.courses import get_accessible_course
 from app.api.v1.endpoints.recordings import get_accessible_recording
-from app.models import Course, Evaluation, EvaluationReview, Recording, ScoreCalibration, User
+from app.models import (
+    AccountBase,
+    Evaluation,
+    EvaluationReview,
+    Recording,
+    ScoreCalibration,
+    SupervisionLink,
+)
 from app.schemas.business import CalibrationCreate, ReviewCreate, Role
 from app.services.recordings import (
     DIMENSION_KEYS,
@@ -16,7 +23,9 @@ from app.services.recordings import (
 router = APIRouter()
 
 
-def get_accessible_evaluation(db: DatabaseSession, user: User, evaluation_id: int) -> Evaluation:
+def get_accessible_evaluation(
+    db: DatabaseSession, user: AccountBase, evaluation_id: int
+) -> Evaluation:
     evaluation = db.get(Evaluation, evaluation_id)
     if evaluation is None:
         raise HTTPException(status_code=404, detail="Evaluation not found")
@@ -24,12 +33,33 @@ def get_accessible_evaluation(db: DatabaseSession, user: User, evaluation_id: in
     return evaluation
 
 
-def require_supervisor_or_admin(user: User, course: Course) -> None:
+def require_review_permission(
+    db: DatabaseSession, user: AccountBase, evaluation: Evaluation
+) -> None:
+    """复核权限：管理员不受限；督导仅可复核分配给自己的评价任务。
+
+    「分配给自己」的判定：该音频由本人上传，或本人已建立课程—督导—音频关联。
+    """
     if user.role == Role.ADMIN.value:
         return
-    if user.role != Role.SUPERVISOR.value or course.supervisor_id != user.id:
+    if user.role != Role.SUPERVISOR.value:
+        raise HTTPException(status_code=403, detail="Only supervisors can review evaluations")
+    recording = evaluation.recording
+    if (
+        recording is not None
+        and recording.uploaded_by_role == Role.SUPERVISOR.value
+        and recording.uploaded_by_id == user.id
+    ):
+        return
+    assigned = db.scalar(
+        select(SupervisionLink.id).where(
+            SupervisionLink.supervisor_id == user.id,
+            SupervisionLink.recording_id == evaluation.recording_id,
+        )
+    )
+    if assigned is None:
         raise HTTPException(
-            status_code=403, detail="Only the assigned supervisor can review evaluations"
+            status_code=403, detail="This evaluation is not assigned to the current supervisor"
         )
 
 
@@ -153,8 +183,7 @@ def add_review(
     db: DatabaseSession,
 ) -> dict[str, object]:
     evaluation = get_accessible_evaluation(db, user, evaluation_id)
-    course = db.get(Course, evaluation.recording.course_id)
-    require_supervisor_or_admin(user, course)
+    require_review_permission(db, user, evaluation)
     review = EvaluationReview(
         evaluation_id=evaluation.id, supervisor_id=user.id, comment=body.comment
     )
@@ -180,8 +209,7 @@ def calibrate_evaluation(
     db: DatabaseSession,
 ) -> dict[str, object]:
     evaluation = get_accessible_evaluation(db, user, evaluation_id)
-    course = db.get(Course, evaluation.recording.course_id)
-    require_supervisor_or_admin(user, course)
+    require_review_permission(db, user, evaluation)
     calibration = ScoreCalibration(
         evaluation_id=evaluation.id,
         supervisor_id=user.id,

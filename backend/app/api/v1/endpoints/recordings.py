@@ -8,11 +8,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.api.v1.endpoints.courses import get_accessible_course
 from app.core.config import settings
-from app.models import ProcessingTask, Recording, User
+from app.models import AccountBase, Admin, ProcessingTask, Recording, Supervisor, Teacher
+from app.schemas.business import RecordingRead, Role
 from app.services.recordings import probe_audio, redact_text
 from app.services.storage import ensure_private_directory, open_private_file
 
@@ -20,8 +22,28 @@ router = APIRouter()
 MAX_CHUNK_BYTES = 1024 * 1024
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a"}
 
+# 上传者角色 → 账号表，用于回填姓名
+UPLOADER_MODELS: dict[str, type[AccountBase]] = {
+    Role.ADMIN.value: Admin,
+    Role.SUPERVISOR.value: Supervisor,
+    Role.TEACHER.value: Teacher,
+}
 
-def get_accessible_recording(db: DatabaseSession, user: User, recording_id: str) -> Recording:
+
+def uploader_name(db: DatabaseSession, recording: Recording) -> str | None:
+    """按 recording.uploaded_by_role 到对应账号表取姓名，取不到时退回用户名。"""
+    model = UPLOADER_MODELS.get(recording.uploaded_by_role)
+    if model is None:
+        return None
+    account = db.get(model, recording.uploaded_by_id)
+    if account is None:
+        return None
+    return getattr(account, "name", None) or account.username
+
+
+def get_accessible_recording(
+    db: DatabaseSession, user: AccountBase, recording_id: str
+) -> Recording:
     recording = db.get(Recording, recording_id)
     if recording is None:
         raise HTTPException(status_code=404, detail="Recording not found")
@@ -38,6 +60,7 @@ async def upload_recording(
     recorded_at: Annotated[datetime, Form()],
     consent_confirmed: Annotated[bool, Form()],
     consent_version: Annotated[str | None, Form()] = None,
+    description: Annotated[str | None, Form()] = None,
 ) -> dict[str, object]:
     get_accessible_course(db, user, course_id)
     if not consent_confirmed:
@@ -73,9 +96,11 @@ async def upload_recording(
             id=recording_id,
             course_id=course_id,
             uploaded_by_id=user.id,
+            uploaded_by_role=user.role,
             storage_path=str(final_path.resolve()),
             original_filename=original_name[:255],
             media_type=file.content_type or "application/octet-stream",
+            description=(description or "").strip()[:500] or None,
             recorded_at=recorded_at,
             consent_at=datetime.now(UTC),
             consent_version=(consent_version or settings.consent_version)[:40],
@@ -100,6 +125,39 @@ async def upload_recording(
         "code": 0,
         "message": "success",
         "data": {"recording_id": recording_id, "task_id": task_id, "status": "QUEUED"},
+    }
+
+
+@router.get("/courses/{course_id}/recordings")
+def list_course_recordings(
+    course_id: int, user: CurrentUser, db: DatabaseSession
+) -> dict[str, object]:
+    """课程音频列表：含上传者角色与姓名，供督导区分教师音频（只读）与听课音频。"""
+    get_accessible_course(db, user, course_id)
+    recordings = db.scalars(
+        select(Recording)
+        .where(Recording.course_id == course_id)
+        .order_by(Recording.recorded_at.desc(), Recording.created_at.desc())
+    ).all()
+    return {
+        "code": 0,
+        "message": "success",
+        "data": [
+            RecordingRead(
+                id=item.id,
+                course_id=item.course_id,
+                uploaded_by_id=item.uploaded_by_id,
+                uploaded_by_role=item.uploaded_by_role,
+                uploader_name=uploader_name(db, item),
+                original_filename=item.original_filename,
+                media_type=item.media_type,
+                recorded_at=item.recorded_at,
+                duration_seconds=item.duration_seconds,
+                description=item.description,
+                created_at=item.created_at,
+            )
+            for item in recordings
+        ],
     }
 
 
@@ -139,6 +197,11 @@ def download_recording(recording_id: str, user: CurrentUser, db: DatabaseSession
 @router.delete("/recordings/{recording_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_recording(recording_id: str, user: CurrentUser, db: DatabaseSession) -> Response:
     recording = get_accessible_recording(db, user, recording_id)
+    # 教师上传的音频督导只读；仅上传者本人与管理员可删除。
+    # 三张账号表独立自增，id 可能相同，必须同时比对角色才能确认归属。
+    is_uploader = recording.uploaded_by_role == user.role and recording.uploaded_by_id == user.id
+    if user.role != Role.ADMIN.value and not is_uploader:
+        raise HTTPException(status_code=403, detail="Only the uploader can delete this recording")
     path = Path(recording.storage_path)
     try:
         path.unlink(missing_ok=True)
