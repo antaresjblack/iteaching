@@ -59,8 +59,8 @@ jobs:
       - name: Ruff 静态检查（代码风格 + 导入排序 + 常见错误）
         run: ruff check .
 
-      #- name: Black 格式检查（仅校验不修改） 怕出问题注释掉了
-      #  run: black --check .
+      - name: Black 格式检查（仅校验不修改）
+        run: black --check .
 
       - name: 运行 pytest 测试套件
         # 测试自包含：业务测试用内存 SQLite + 依赖覆盖，迁移测试自行设置
