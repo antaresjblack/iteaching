@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Lock, User } from '@element-plus/icons-vue'
-import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -37,8 +37,10 @@ async function handleSubmit(): Promise<void> {
     const user = await auth.login({ username: form.username.trim(), password: form.password })
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : homePath(user.role)
     await router.replace(redirect)
-  } catch {
-    // 登录失败提示由 http 层统一处理（401 显示后端 message）
+  } catch (err: unknown) {
+    // 登录失败提示：认证接口的 401 不会被 http 拦截器统一弹，由这里手动提示
+    const msg = err instanceof Error ? err.message : '登录失败，请稍后重试'
+    ElMessage.error(msg)
   } finally {
     submitting.value = false
   }

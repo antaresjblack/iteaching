@@ -5,7 +5,10 @@ import { ElMessage } from 'element-plus'
 import { ApiError, type ApiResponse } from '@/types/api'
 import { clearToken } from '@/utils/token'
 
-const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1'
+// 统一以 /api/v1 为前缀，通过 Vite proxy 转发到后端（开发环境），
+// 生产环境由 nginx 等网关反向代理同路径，无跨域问题。
+// 若需直连后端（如纯部署场景），可设置 VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1 等绝对地址覆盖。
+const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -34,11 +37,27 @@ export function setRedirectHandler(handler: () => void): void {
 }
 
 function extractMessage(payload: unknown): string | undefined {
-  if (payload && typeof payload === 'object' && 'message' in payload) {
-    const message = (payload as { message?: unknown }).message
-    if (typeof message === 'string' && message) return message
+  if (payload && typeof payload === 'object') {
+    // 业务层统一响应 {code, message, data}
+    if ('message' in payload) {
+      const message = (payload as { message?: unknown }).message
+      if (typeof message === 'string' && message) return message
+    }
+    // FastAPI HTTPException 的 detail 字段（登录/校验失败等）
+    if ('detail' in payload) {
+      const detail = (payload as { detail?: unknown }).detail
+      if (typeof detail === 'string' && detail) return detail
+    }
   }
   return undefined
+}
+
+/** 401 全局处理需排除的认证接口（这些接口返回 401 是业务失败，不是 token 过期） */
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh']
+
+function isAuthEndpoint(configUrl: string | undefined): boolean {
+  if (!configUrl) return false
+  return AUTH_ENDPOINTS.some((ep) => configUrl.includes(ep))
 }
 
 apiClient.interceptors.response.use(
@@ -63,10 +82,15 @@ apiClient.interceptors.response.use(
     const backendMessage = extractMessage(payload)
 
     if (status === 401) {
-      clearToken()
-      localStorage.removeItem('iteaching_user')
-      ElMessage.error('登录已过期，请重新登录')
-      redirectToLogin()
+      // 登录/注册等认证接口返回 401 是业务失败（密码错误等），由调用方自行提示
+      if (isAuthEndpoint(error.config?.url)) {
+        // 不清除 token、不重定向，让错误继续向上抛给 LoginView
+      } else {
+        clearToken()
+        localStorage.removeItem('iteaching_user')
+        ElMessage.error('登录已过期，请重新登录')
+        redirectToLogin()
+      }
     } else if (status === 403) {
       ElMessage.error(backendMessage ? `没有权限执行此操作（${backendMessage}）` : '没有权限执行此操作')
     } else if (status && status !== 404) {
@@ -88,6 +112,10 @@ export function get<T>(url: string, config?: object): Promise<T> {
 
 export function post<T>(url: string, data?: unknown, config?: object): Promise<T> {
   return apiClient.post(url, data, config) as unknown as Promise<T>
+}
+
+export function patch<T>(url: string, data?: unknown, config?: object): Promise<T> {
+  return apiClient.patch(url, data, config) as unknown as Promise<T>
 }
 
 export function del<T = void>(url: string): Promise<T> {

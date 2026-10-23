@@ -34,8 +34,8 @@ const notReady = computed(
   () => !loading.value && error.value instanceof ApiError && error.value.status === 404,
 )
 
-/** 写权限：管理员或该课程的指定督导 */
-const canWrite = computed(() => canReviewCourse(auth.user, course.value))
+/** 写权限：管理员与督导均可（督导经录音与课程多对多关联） */
+const canWrite = computed(() => canReviewCourse(auth.user))
 
 /** 校准后总分与 AI 原始分不同时展示差异 */
 const showModelScore = computed(() => {

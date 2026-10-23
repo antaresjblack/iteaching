@@ -10,6 +10,8 @@ import { validateUpload } from '@/utils/validateUpload'
 
 const props = defineProps<{
   courseId: number
+  /** 弹窗标题：教师为“上传课堂录音”，督导为“上传听课音频” */
+  title?: string
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +29,7 @@ const progress = ref(0)
 const form = reactive({
   recordedAt: '',
   consentConfirmed: false,
+  description: '',
 })
 
 const selectedFile = computed<File | null>(() => fileList.value[0]?.raw ?? null)
@@ -80,6 +83,7 @@ function handleFileExceed(files: File[]): void {
 function reset(): void {
   form.recordedAt = ''
   form.consentConfirmed = false
+  form.description = ''
   fileList.value = []
   progress.value = 0
   formRef.value?.clearValidate()
@@ -114,6 +118,7 @@ async function handleSubmit(): Promise<void> {
         file,
         recorded_at: localDateTimeToIso(form.recordedAt),
         consent_confirmed: form.consentConfirmed,
+        description: form.description.trim() || undefined,
       },
       (percent) => {
         progress.value = percent
@@ -138,7 +143,7 @@ function handleClosed(): void {
 <template>
   <el-dialog
     v-model="visible"
-    title="上传课堂录音"
+    :title="props.title ?? '上传课堂录音'"
     width="520px"
     :close-on-click-modal="false"
     @closed="handleClosed"
@@ -174,6 +179,17 @@ function handleClosed(): void {
           format="YYYY-MM-DD HH:mm"
           style="width: 100%"
           :disabled-date="(date: Date) => date.getTime() > Date.now()"
+        />
+      </el-form-item>
+
+      <el-form-item label="内容说明">
+        <el-input
+          v-model="form.description"
+          type="textarea"
+          :rows="2"
+          maxlength="500"
+          show-word-limit
+          placeholder="选填，简要说明本次课堂或听课内容"
         />
       </el-form-item>
 

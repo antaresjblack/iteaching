@@ -38,6 +38,12 @@ export const routes = [
     meta: { title: '课程详情' },
   },
   {
+    path: '/supervisions',
+    name: 'supervision-courses',
+    component: () => import('@/views/SupervisionCoursesView.vue'),
+    meta: { title: '我查过的课' },
+  },
+  {
     path: '/evaluations/:id',
     name: 'evaluation-detail',
     component: () => import('@/views/EvaluationDetailView.vue'),

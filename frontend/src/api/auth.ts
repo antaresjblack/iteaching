@@ -16,3 +16,11 @@ export function login(body: LoginBody): Promise<LoginData> {
 export function fetchMe(): Promise<UserRead> {
   return get<UserRead>('/auth/me')
 }
+
+/** POST /auth/password（本人修改密码，需校验旧密码；新密码至少 12 位） */
+export function changePassword(oldPassword: string, newPassword: string): Promise<null> {
+  return post<null>('/auth/password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  })
+}

@@ -11,8 +11,16 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // 同时监听 IPv4(0.0.0.0) 和 IPv6，避免 localhost/127.0.0.1 解析差异导致访问失败
     port: 5173,
     strictPort: true,
+    // 代理 /api/v1 到后端，前端用相对路径请求即可，无 CORS 问题
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
   test: {
     environment: 'jsdom',

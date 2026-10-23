@@ -38,9 +38,16 @@ vi.mock('@/api/evaluations', () => ({
 vi.mock('@/api/courses', () => ({
   getCourse: vi.fn(async () => ({
     id: 1,
+    code: 'MATH-001',
     name: '测试课程',
-    supervisor_id: 2,
+    location: '信息',
+    class_name: '2026 级 1 班',
+    schedules: [{ weekday: 1, start_time: '08:00', end_time: '09:40' }],
+    assessment_form: 'percent',
+    description: null,
     teacher_id: 3,
+    teacher_name: '李老师',
+    status: 'not_started',
     created_at: '2026-10-01T08:00:00Z',
   })),
 }))
@@ -117,13 +124,20 @@ describe('评价详情页权限', () => {
     expect(calibrationSection.props('canWrite')).toBe(true)
   })
 
-  it('非本课程督导（course_id 指向他人课程）不可写', async () => {
+  it('督导可审核任意课程的评价（多对多经录音关联，不再按课程绑定）', async () => {
     const { getCourse } = await import('@/api/courses')
     vi.mocked(getCourse).mockResolvedValueOnce({
       id: 1,
+      code: 'MATH-002',
       name: '测试课程',
-      supervisor_id: 99,
+      location: '建筑',
+      class_name: '2026 级 2 班',
+      schedules: [{ weekday: 2, start_time: '10:00', end_time: '11:40' }],
+      assessment_form: 'percent',
+      description: null,
       teacher_id: 3,
+      teacher_name: '赵老师',
+      status: 'not_started',
       created_at: '2026-10-01T08:00:00Z',
     })
     const wrapper = await mountView('supervisor')
@@ -131,6 +145,6 @@ describe('评价详情页权限', () => {
     await wrapper.vm.$nextTick()
 
     const reviewSection = wrapper.findComponent({ name: 'ReviewSection' })
-    expect(reviewSection.props('canWrite')).toBe(false)
+    expect(reviewSection.props('canWrite')).toBe(true)
   })
 })

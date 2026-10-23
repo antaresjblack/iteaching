@@ -56,20 +56,48 @@ describe('空数据与错误状态', () => {
 
   it('课程列表为空时展示空状态与操作引导', async () => {
     vi.mocked(listCourses).mockResolvedValue([])
-    const pinia = setupAuth('teacher')
+    // 教师视图已重构为周课表，列表空态以督导角色验证
+    const pinia = setupAuth('supervisor')
     const wrapper = mount(CourseListView, {
       global: { plugins: [pinia, ElementPlus] },
     })
     await flushPromises(wrapper)
 
     expect(wrapper.text()).toContain('暂无课程')
-    expect(wrapper.text()).toContain('请联系管理员或督导为你分配课程')
+  })
+
+  it('教师角色展示周课表视图，空数据时仍渲染空网格', async () => {
+    // 保护点：教师进入课程页渲染"我的课表"网格而非列表，无课程时不报错
+    vi.mocked(listCourses).mockResolvedValue([])
+    const pinia = setupAuth('teacher')
+    const wrapper = mount(CourseListView, {
+      global: { plugins: [pinia, ElementPlus] },
+    })
+    await flushPromises(wrapper)
+
+    expect(wrapper.text()).toContain('我的课表')
+    expect(wrapper.find('.tt-grid').exists()).toBe(true)
   })
 
   it('课程列表加载失败时展示错误与重试，重试成功后恢复', async () => {
     vi.mocked(listCourses)
       .mockRejectedValueOnce(new ApiError('Internal server error', { status: 500 }))
-      .mockResolvedValueOnce([{ id: 1, name: '课程A', supervisor_id: 2, teacher_id: 3, created_at: '2026-10-01T08:00:00Z' }])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          code: 'MATH-001',
+          name: '课程A',
+          location: '信息',
+          class_name: '2026 级 1 班',
+          schedules: [{ weekday: 1, start_time: '08:00', end_time: '09:40' }],
+          assessment_form: 'percent',
+          description: null,
+          teacher_id: 3,
+          teacher_name: '李老师',
+          status: 'not_started',
+          created_at: '2026-10-01T08:00:00Z',
+        },
+      ])
     const pinia = setupAuth('supervisor')
     const wrapper = mount(CourseListView, {
       global: { plugins: [pinia, ElementPlus] },
@@ -91,9 +119,16 @@ describe('空数据与错误状态', () => {
     )
     vi.mocked(getCourse).mockResolvedValue({
       id: 1,
+      code: 'MATH-001',
       name: '课程A',
-      supervisor_id: 2,
+      location: '教学楼 A101',
+      class_name: '2026 级 1 班',
+      schedules: [{ weekday: 1, start_time: '08:00', end_time: '09:40' }],
+      assessment_form: 'percent',
+      description: null,
       teacher_id: 3,
+      teacher_name: '李老师',
+      status: 'not_started',
       created_at: '2026-10-01T08:00:00Z',
     })
     const pinia = setupAuth('teacher')

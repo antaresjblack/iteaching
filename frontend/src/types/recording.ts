@@ -28,6 +28,33 @@ export interface UploadPayload {
   recorded_at: string
   consent_confirmed: boolean
   consent_version?: string
+  /** 内容说明（选填） */
+  description?: string
+}
+
+/** GET /courses/{id}/recordings 列表项 */
+export interface CourseRecording {
+  id: string
+  course_id: number
+  uploaded_by_id: number
+  /** 上传者角色：teacher 上传的音频督导只读；supervisor 为督导听课音频 */
+  uploaded_by_role: 'admin' | 'supervisor' | 'teacher'
+  uploader_name: string | null
+  original_filename: string
+  media_type: string
+  recorded_at: string
+  duration_seconds: number
+  description: string | null
+  created_at: string
+}
+
+/** POST /courses/{id}/supervision-links 返回的关联记录 */
+export interface SupervisionLink {
+  id: number
+  course_id: number
+  supervisor_id: number
+  recording_id: string
+  created_at: string
 }
 
 /** 本地上传记录（存 Pinia + localStorage，用于页面刷新后仍可跟踪任务） */
