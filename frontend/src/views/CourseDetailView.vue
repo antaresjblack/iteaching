@@ -19,6 +19,7 @@ import UploadRecordingDialog from '@/components/UploadRecordingDialog.vue'
 import { usePollingTask } from '@/composables/usePollingTask'
 import { useAuthStore } from '@/stores/auth'
 import { useRecordingsStore } from '@/stores/recordings'
+import { ApiError } from '@/types/api'
 import type { CourseRead } from '@/types/course'
 import type { EvaluationListItem } from '@/types/evaluation'
 import type {
@@ -28,6 +29,8 @@ import type {
   UploadData,
 } from '@/types/recording'
 import { formatDateTime, formatScore } from '@/utils/format'
+import { DIMENSION_KEYS } from '@/types/evaluation'
+import { DIMENSION_LABELS } from '@/utils/dimensions'
 import { ASSESSMENT_FORM_LABELS, COURSE_STATUS_LABELS, formatSchedules } from '@/utils/course'
 
 const route = useRoute()
@@ -51,10 +54,11 @@ const playVisible = ref(false)
 const playingRecording = ref<CourseRecording | null>(null)
 
 const isSupervisor = computed(() => auth.user?.role === 'supervisor')
+const isTeacher = computed(() => auth.user?.role === 'teacher')
 
-/** 教师上传的音频：督导仅可播放与查看，不可编辑或删除 */
-const teacherRecordings = computed(() =>
-  recordings.value.filter((item) => item.uploaded_by_role === 'teacher'),
+/** 教师查看督导上传音频，督导查看教师上传音频；只读播放。 */
+const sharedRecordings = computed(() =>
+  recordings.value.filter((item) => item.uploaded_by_role === (isTeacher.value ? 'supervisor' : 'teacher')),
 )
 
 // 历史评价分页
@@ -134,6 +138,13 @@ async function loadRecordings(): Promise<void> {
   recordingsLoading.value = true
   try {
     recordings.value = await listCourseRecordings(courseId)
+    // 仅在服务器列表成功返回后，清理已不存在的失败或暂停上传缓存。
+    const existingIds = new Set(recordings.value.map((item) => item.id))
+    for (const record of recordingsStore.byCourse(courseId)) {
+      if ((record.status === 'FAILED' || record.status === 'TIMEOUT') && !existingIds.has(record.recording_id)) {
+        recordingsStore.remove(record.recording_id)
+      }
+    }
   } catch {
     recordings.value = []
   } finally {
@@ -161,6 +172,21 @@ function latestCalibration(row: EvaluationListItem): EvaluationListItem['calibra
   return row.calibrations.reduce((latest, item) => (item.id > latest.id ? item : latest))
 }
 
+function historyChanges(row: EvaluationListItem) {
+  const calibrations = row.calibrations.map((item) => {
+    const changes: string[] = []
+    if (item.overall_score != null) changes.push(`手动总分 ${formatScore(item.overall_score)}`)
+    for (const key of DIMENSION_KEYS) {
+      const score = item.dimension_scores?.[key]
+      if (score != null) changes.push(`${DIMENSION_LABELS[key]} ${formatScore(score)}`)
+    }
+    if (!changes.length) changes.push('仅补充说明')
+    return { key: `c-${item.id}`, created_at: item.created_at,
+      text: `督导校准：${changes.join('；')}；说明：${item.comment || '未填写'}` }
+  })
+  const reviews = row.reviews.map(item => ({ key: `r-${item.id}`, created_at: item.created_at, text: `督导评语：${item.comment || '未填写'}` }))
+  return [...calibrations, ...reviews].sort((a, b) => a.created_at.localeCompare(b.created_at))
+}
 async function loadHistory(): Promise<void> {
   historyLoading.value = true
   historyError.value = null
@@ -223,8 +249,12 @@ async function handleDelete(record: LocalUploadRecord): Promise<void> {
     recordingsStore.remove(record.recording_id)
     ElMessage.success('录音已删除')
     if (activeTab.value === 'history') await loadHistory()
-  } catch {
-    // 错误已由 http 层统一提示
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      recordingsStore.remove(record.recording_id)
+      ElMessage.success('服务器记录已不存在，本地记录已清除')
+    }
+    // 其他错误保留本地记录，避免误清理。
   }
 }
 
@@ -307,55 +337,9 @@ onBeforeUnmount(() => {
           </el-button>
         </div>
 
-        <!-- 教师上传的音频：督导仅可播放与查看，不可编辑或删除 -->
-        <h3 class="section-title">教师上传的音频</h3>
-        <el-skeleton v-if="recordingsLoading" :rows="3" animated />
-        <el-empty v-else-if="teacherRecordings.length === 0" description="教师暂未上传音频" />
-        <el-table v-else :data="teacherRecordings" class="uploads-table">
-          <el-table-column label="文件名" min-width="180">
-            <template #default="{ row }">
-              <span class="filename">{{ row.original_filename }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="上传教师" width="120">
-            <template #default="{ row }">
-              <span>{{ row.uploader_name || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="录制时间" width="160">
-            <template #default="{ row }">
-              <span class="tabular text-secondary">{{ formatDateTime(row.recorded_at) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="时长" width="90">
-            <template #default="{ row }">
-              <span class="tabular text-secondary">{{ formatDuration(row.duration_seconds) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="内容说明" min-width="200">
-            <template #default="{ row }">
-              <span class="text-secondary">{{ row.description || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="110" fixed="right">
-            <template #default="{ row }">
-              <el-button
-                text
-                type="primary"
-                :icon="VideoPlay"
-                aria-label="播放音频"
-                title="播放音频"
-                @click="openPlay(row)"
-              >
-                播放
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-
         <!-- 本人上传的录音：可查看处理进度与评价 -->
         <h3 class="section-title">{{ isSupervisor ? '我的听课音频' : '我上传的录音' }}</h3>
-        <el-empty v-if="uploads.length === 0" description="还没有上传过录音">
+        <el-empty class="recording-empty" :image-size="56" v-if="uploads.length === 0" description="还没有上传过录音">
           <el-button type="primary" :icon="Upload" @click="uploadVisible = true">
             {{ isSupervisor ? '上传第一段听课音频' : '上传第一段课堂录音' }}
           </el-button>
@@ -411,6 +395,52 @@ onBeforeUnmount(() => {
           </el-table-column>
         </el-table>
 
+        <!-- 按当前角色展示另一方上传的课程音频 -->
+        <h3 class="section-title">{{ isTeacher ? '督导上传音频' : '教师上传的音频' }}</h3>
+        <el-skeleton v-if="recordingsLoading" :rows="3" animated />
+        <el-empty class="recording-empty" :image-size="56" v-else-if="sharedRecordings.length === 0" :description="isTeacher ? '督导暂未上传音频' : '教师暂未上传音频'" />
+        <el-table v-else :data="sharedRecordings" class="uploads-table">
+          <el-table-column label="文件名" min-width="180">
+            <template #default="{ row }">
+              <span class="filename">{{ row.original_filename }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="isTeacher ? '上传督导' : '上传教师'" width="120">
+            <template #default="{ row }">
+              <span>{{ row.uploader_name || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="录制时间" width="160">
+            <template #default="{ row }">
+              <span class="tabular text-secondary">{{ formatDateTime(row.recorded_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="时长" width="90">
+            <template #default="{ row }">
+              <span class="tabular text-secondary">{{ formatDuration(row.duration_seconds) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="内容说明" min-width="200">
+            <template #default="{ row }">
+              <span class="text-secondary">{{ row.description || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="110" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                text
+                type="primary"
+                :icon="VideoPlay"
+                aria-label="播放音频"
+                title="播放音频"
+                @click="openPlay(row)"
+              >
+                播放
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
         <el-dialog v-model="playVisible" title="音频播放" width="560px" destroy-on-close>
           <div v-if="playingRecording" class="play-panel">
             <p class="play-meta">
@@ -444,78 +474,78 @@ onBeforeUnmount(() => {
         </el-empty>
 
         <template v-else>
-          <el-table :data="historyItems" class="history-table">
+          <el-table :data="historyItems" class="history-table" style="width: 100%">
             <el-table-column type="expand">
               <template #default="{ row }">
                 <div class="history-expand">
                   <p>
-                    <strong>AI 初评</strong>：模型总分 {{ formatScore(row.model_overall_score) }}；
+                    <strong>AI 初评</strong>：模型总分 {{ row.model_overall_score == null ? '维度未齐全，未计算' : formatScore(row.model_overall_score) }}；
                     已观察维度均分 {{ formatScore(row.observed_score) }}
                     <template v-if="row.observed_count != null">（{{ row.observed_count }} 项）</template>
                   </p>
                   <p>
                     <strong>督导终评</strong>：
                     <template v-if="latestCalibration(row)">
-                      {{ formatScore(latestCalibration(row)!.overall_score) }} ·
-                      {{ latestCalibration(row)!.comment }}
+                      生效总分 {{ row.overall_score == null ? '维度尚未补齐，暂无总分' : formatScore(row.overall_score) }} ·
+                      最近校准说明：{{ latestCalibration(row)!.comment || '未填写' }}
                     </template>
                     <span v-else class="text-secondary">尚无督导终评</span>
                   </p>
-                  <p><strong>修改记录</strong>：</p>
+                  <p><strong>当前生效维度分</strong>：
+                    <span v-for="key in DIMENSION_KEYS" :key="key" class="history-dimension">
+                      {{ DIMENSION_LABELS[key] }} {{ row.dimension_scores[key] == null ? '证据不足' : formatScore(row.dimension_scores[key]) }}
+                    </span>
+                  </p>
+                  <p><strong>修改记录（按时间先后）</strong>：</p>
                   <ul
                     v-if="row.calibrations.length + row.reviews.length > 0"
                     class="history-log"
                   >
-                    <li v-for="item in row.calibrations" :key="`c-${item.id}`">
-                      {{ formatDateTime(item.created_at) }} 督导校准 · 总分
-                      {{ formatScore(item.overall_score) }} · {{ item.comment }}
-                    </li>
-                    <li v-for="item in row.reviews" :key="`r-${item.id}`">
-                      {{ formatDateTime(item.created_at) }} 督导评语 · {{ item.comment }}
-                    </li>
-                  </ul>
+                    <li v-for="item in historyChanges(row)" :key="item.key">
+                      {{ formatDateTime(item.created_at) }} · {{ item.text }}
+                    </li>                  </ul>
                   <p v-else class="text-secondary">暂无修改记录</p>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="录制时间" width="170">
+            <el-table-column label="录制时间" min-width="170">
               <template #default="{ row }">
                 <span class="tabular">{{ formatDateTime(row.recorded_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="AI 初评均分" width="140">
+            <el-table-column label="AI 初评均分" min-width="140">
               <template #default="{ row }">
                 <span class="tabular score">{{ formatScore(row.observed_score) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="评价覆盖" width="110">
+            <el-table-column label="评价覆盖" min-width="110">
               <template #default="{ row }">
                 <span class="tabular">{{ row.mode === 'boppps' && row.observed_count != null ? `${row.observed_count}/6 项` : '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="督导终评总分" width="130">
+            <el-table-column label="督导终评总分" min-width="130">
               <template #default="{ row }">
                 <span class="tabular score">{{ formatScore(row.overall_score) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="模式" width="110">
+            <el-table-column label="模式" min-width="110">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.mode === 'boppps' ? 'primary' : 'info'">
                   {{ row.mode === 'boppps' ? 'BOPPPS 六维' : '基础评价' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="评语数" width="90">
+            <el-table-column label="评语数" min-width="90">
               <template #default="{ row }">
                 <span class="tabular text-secondary">{{ row.reviews.length }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="校准数" width="90">
+            <el-table-column label="校准数" min-width="90">
               <template #default="{ row }">
                 <span class="tabular text-secondary">{{ row.calibrations.length }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="130" fixed="right">
+            <el-table-column label="操作" min-width="130" fixed="right">
               <template #default="{ row }">
                 <el-button
                   text
@@ -559,6 +589,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.history-dimension { display: inline-block; margin-right: 16px; }
+
+.recording-empty {
+  padding: 12px 0;
+}
+.recording-empty :deep(.el-empty__description) {
+  margin-top: 8px;
+}
+.recording-empty :deep(.el-empty__bottom) {
+  margin-top: 12px;
+}
+
 .header-left {
   display: flex;
   align-items: center;
