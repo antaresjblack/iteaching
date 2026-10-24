@@ -243,13 +243,27 @@ def _comparison_analysis(course_id: int, user: CurrentUser, db: DatabaseSession,
     for side in ("previous", "latest"):
         evaluation = get_accessible_evaluation(db, user, comparison[side]["evaluation_id"])
         detail = serialize_evaluation(evaluation)
-        payload["evaluations"].append({
-            "position": side,
-            **{key: detail[key] for key in (
-                "id", "rubric_version", "mode", "model_overall_score", "model_dimension_scores",
-                "overall_score", "dimension_scores", "problems", "suggestions", "reviews", "calibrations"
-            )},
-        })
+        payload["evaluations"].append(
+            {
+                "position": side,
+                **{
+                    key: detail[key]
+                    for key in (
+                        "id",
+                        "rubric_version",
+                        "mode",
+                        "model_overall_score",
+                        "model_dimension_scores",
+                        "overall_score",
+                        "dimension_scores",
+                        "problems",
+                        "suggestions",
+                        "reviews",
+                        "calibrations",
+                    )
+                },
+            }
+        )
     return {"code": 0, "message": "success", "data": analyze(payload, generate)}
 
 

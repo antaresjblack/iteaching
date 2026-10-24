@@ -1,4 +1,5 @@
 """On-demand comparison synthesis; cache keyed by current evaluation content."""
+
 import hashlib
 import json
 import sys
@@ -19,11 +20,13 @@ def analyze(payload: dict, generate: bool = False) -> dict | None:
     key = hashlib.sha256((PROMPT_VERSION + encoded).encode()).hexdigest()
     directory = ROOT / "runtime" / "comparison"
     path = directory / (key + ".json")
+
     def cached():
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+
     existing = cached()
     if existing is not None or not generate:
         return existing
@@ -37,6 +40,7 @@ def analyze(payload: dict, generate: bool = False) -> dict | None:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
         from iteaching_ai.provider import ModelProvider
+
         try:
             result = ModelProvider().generate("comparison_analysis", json.loads(encoded))
         except Exception:
@@ -45,6 +49,7 @@ def analyze(payload: dict, generate: bool = False) -> dict | None:
         if not isinstance(text, str) or not text.strip() or len(text) > 6000:
             raise HTTPException(502, "综合分析返回格式不正确，请重试")
         from app.services.recordings import DIMENSION_LABELS, redact_text
+
         for name, label in DIMENSION_LABELS.items():
             text = text.replace(name, label)
         output = {"analysis": redact_text(text.strip()), "version": PROMPT_VERSION}
