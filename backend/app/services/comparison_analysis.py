@@ -50,6 +50,8 @@ def analyze(payload: dict, generate: bool = False) -> dict | None:
         text = result.get("analysis") if isinstance(result, dict) else None
         if not isinstance(text, str) or not text.strip() or len(text) > 6000:
             raise HTTPException(502, "综合分析返回格式不正确，请重试")
+        # 模型有时把换行输出成字面 \n（反斜杠+n），统一还原为真实换行。
+        text = text.replace("\\n", "\n")
         from app.services.recordings import DIMENSION_LABELS, redact_text
 
         for name, label in DIMENSION_LABELS.items():
