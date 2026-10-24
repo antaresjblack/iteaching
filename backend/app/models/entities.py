@@ -238,7 +238,9 @@ class ScoreCalibration(TimestampMixin, Base):
     evaluation_id: Mapped[int] = mapped_column(
         ForeignKey("evaluations.id", ondelete="CASCADE"), index=True
     )
-    supervisor_id: Mapped[int] = mapped_column(ForeignKey("supervisors.id", ondelete="RESTRICT"))
+    # 校准者可能是督导或教师（三张账号表独立自增，id 可能相同），故以角色+id 共同标识。
+    calibrated_by_id: Mapped[int] = mapped_column(Integer, index=True)
+    calibrated_by_role: Mapped[str] = mapped_column(String(20), nullable=False)
     overall_score: Mapped[float | None] = mapped_column(Float)
     dimension_scores: Mapped[dict[str, float] | None] = mapped_column(JSON)
     comment: Mapped[str | None] = mapped_column(Text)
@@ -246,25 +248,17 @@ class ScoreCalibration(TimestampMixin, Base):
     evaluation: Mapped[Evaluation] = relationship(back_populates="calibrations")
 
 
-class SupervisionLink(TimestampMixin, Base):
-    """督导听课关联：显式记录课程—督导—音频三要素。
+class CourseSupervisor(TimestampMixin, Base):
+    """督导加入课程的成员关系：驱动「我查过的课」与课程内可见范围。
 
-    同一督导对同一课程可有多条关联（多次听课），
-    但同一音频重复关联需幂等，故对 (supervisor_id, recording_id) 做唯一约束。
+    同一督导对同一课程最多一条成员关系（加入一次即可）。
     """
 
-    __tablename__ = "supervision_links"
-    __table_args__ = (
-        UniqueConstraint(
-            "supervisor_id", "recording_id", name="uq_supervision_supervisor_recording"
-        ),
-    )
+    __tablename__ = "course_supervisors"
+    __table_args__ = (UniqueConstraint("course_id", "supervisor_id", name="uq_course_supervisor"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"), index=True)
     supervisor_id: Mapped[int] = mapped_column(
         ForeignKey("supervisors.id", ondelete="RESTRICT"), index=True
-    )
-    recording_id: Mapped[str] = mapped_column(
-        ForeignKey("recordings.id", ondelete="CASCADE"), index=True
     )

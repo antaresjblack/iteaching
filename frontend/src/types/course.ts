@@ -91,7 +91,7 @@ export interface CourseQuery {
   time?: string
 }
 
-/** GET /supervisions/my-courses 列表项：课程 + 最近关联时间 */
+/** GET /supervisions/my-courses 列表项：课程 + 加入时间 */
 export interface SupervisedCourseRead extends CourseRead {
-  last_linked_at: string
+  joined_at: string
 }

@@ -15,7 +15,30 @@ export function isAdmin(user: UserRead | null | undefined): boolean {
   return user?.role === 'admin'
 }
 
-/** 能否对课程的评价写评语/校准：管理员与督导均可（督导经录音与课程多对多关联） */
-export function canReviewCourse(user: UserRead | null | undefined): boolean {
-  return user?.role === 'admin' || user?.role === 'supervisor'
+/** 当前账号是否为某条录音/评价的上传者本人（角色与账号 id 需同时匹配） */
+export function isUploader(
+  user: UserRead | null | undefined,
+  uploadedByRole: string,
+  uploadedById: number,
+): boolean {
+  return !!user && user.role === uploadedByRole && user.id === uploadedById
+}
+
+/** 能否校准：管理员，或上传者本人（教师/督导均可校准自己上传的录音） */
+export function canCalibrateEvaluation(
+  user: UserRead | null | undefined,
+  uploadedByRole: string,
+  uploadedById: number,
+): boolean {
+  return isAdmin(user) || isUploader(user, uploadedByRole, uploadedById)
+}
+
+/** 能否写督导评语：管理员，或上传该音频的督导本人 */
+export function canReviewEvaluation(
+  user: UserRead | null | undefined,
+  uploadedByRole: string,
+  uploadedById: number,
+): boolean {
+  if (isAdmin(user)) return true
+  return user?.role === 'supervisor' && isUploader(user, uploadedByRole, uploadedById)
 }

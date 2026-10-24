@@ -244,16 +244,10 @@ class RecordingRead(BaseModel):
     created_at: datetime
 
 
-class SupervisionLinkCreate(BaseModel):
-    """督导把某段音频关联到课程（幂等：重复提交同一音频返回已有关联）。"""
-
-    recording_id: Annotated[str, Field(min_length=1, max_length=36)]
-
-
 class SupervisedCourseRead(CourseRead):
-    """我查过的课：课程信息 + 最近一次关联时间。"""
+    """我查过的课：课程信息 + 督导加入该课程的时间。"""
 
-    last_linked_at: datetime
+    joined_at: datetime
 
 
 class PasswordChange(BaseModel):

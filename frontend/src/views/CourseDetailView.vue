@@ -7,7 +7,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { getCourse } from '@/api/courses'
 import { getEvaluationByRecording, listCourseEvaluations } from '@/api/evaluations'
 import {
-  createSupervisionLink,
   deleteRecording,
   getRecordingStatus,
   listCourseRecordings,
@@ -166,7 +165,7 @@ function formatDuration(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
 }
 
-/** 取最近一次督导校准（id 最大者），用于“督导终评”展示 */
+/** 取最近一次人工校准（id 最大者），用于“人工终评”展示 */
 function latestCalibration(row: EvaluationListItem): EvaluationListItem['calibrations'][number] | null {
   if (row.calibrations.length === 0) return null
   return row.calibrations.reduce((latest, item) => (item.id > latest.id ? item : latest))
@@ -181,8 +180,9 @@ function historyChanges(row: EvaluationListItem) {
       if (score != null) changes.push(`${DIMENSION_LABELS[key]} ${formatScore(score)}`)
     }
     if (!changes.length) changes.push('仅补充说明')
+    const who = item.calibrated_by_role === 'teacher' ? '教师校准' : '督导校准'
     return { key: `c-${item.id}`, created_at: item.created_at,
-      text: `督导校准：${changes.join('；')}；说明：${item.comment || '未填写'}` }
+      text: `${who}：${changes.join('；')}；说明：${item.comment || '未填写'}` }
   })
   const reviews = row.reviews.map(item => ({ key: `r-${item.id}`, created_at: item.created_at, text: `督导评语：${item.comment || '未填写'}` }))
   return [...calibrations, ...reviews].sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -215,12 +215,6 @@ function onUploaded(data: UploadData, filename: string, recordedAt: string): voi
   })
   startPollingIfNeeded()
   void loadRecordings()
-  // 督导上传成功后，把该音频与本课程建立关联（幂等：重复关联同一音频不会产生重复记录）
-  if (isSupervisor.value) {
-    void createSupervisionLink(courseId, data.recording_id)
-      .then(() => ElMessage.success('音频已关联到本课程'))
-      .catch(() => ElMessage.warning('音频已上传，但关联课程失败，请重新关联'))
-  }
   void loadHistory()
 }
 
@@ -395,51 +389,53 @@ onBeforeUnmount(() => {
           </el-table-column>
         </el-table>
 
-        <!-- 按当前角色展示另一方上传的课程音频 -->
-        <h3 class="section-title">{{ isTeacher ? '督导上传音频' : '教师上传的音频' }}</h3>
-        <el-skeleton v-if="recordingsLoading" :rows="3" animated />
-        <el-empty class="recording-empty" :image-size="56" v-else-if="sharedRecordings.length === 0" :description="isTeacher ? '督导暂未上传音频' : '教师暂未上传音频'" />
-        <el-table v-else :data="sharedRecordings" class="uploads-table">
-          <el-table-column label="文件名" min-width="180">
-            <template #default="{ row }">
-              <span class="filename">{{ row.original_filename }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="isTeacher ? '上传督导' : '上传教师'" width="120">
-            <template #default="{ row }">
-              <span>{{ row.uploader_name || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="录制时间" width="160">
-            <template #default="{ row }">
-              <span class="tabular text-secondary">{{ formatDateTime(row.recorded_at) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="时长" width="90">
-            <template #default="{ row }">
-              <span class="tabular text-secondary">{{ formatDuration(row.duration_seconds) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="内容说明" min-width="200">
-            <template #default="{ row }">
-              <span class="text-secondary">{{ row.description || '—' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="110" fixed="right">
-            <template #default="{ row }">
-              <el-button
-                text
-                type="primary"
-                :icon="VideoPlay"
-                aria-label="播放音频"
-                title="播放音频"
-                @click="openPlay(row)"
-              >
-                播放
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <!-- 教师可查看督导上传的课程音频；督导仅能看到自己上传的音频，不展示此区域 -->
+        <template v-if="isTeacher">
+          <h3 class="section-title">督导上传音频</h3>
+          <el-skeleton v-if="recordingsLoading" :rows="3" animated />
+          <el-empty class="recording-empty" :image-size="56" v-else-if="sharedRecordings.length === 0" description="督导暂未上传音频" />
+          <el-table v-else :data="sharedRecordings" class="uploads-table">
+            <el-table-column label="文件名" min-width="180">
+              <template #default="{ row }">
+                <span class="filename">{{ row.original_filename }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="上传督导" width="120">
+              <template #default="{ row }">
+                <span>{{ row.uploader_name || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="录制时间" width="160">
+              <template #default="{ row }">
+                <span class="tabular text-secondary">{{ formatDateTime(row.recorded_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="时长" width="90">
+              <template #default="{ row }">
+                <span class="tabular text-secondary">{{ formatDuration(row.duration_seconds) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="内容说明" min-width="200">
+              <template #default="{ row }">
+                <span class="text-secondary">{{ row.description || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  text
+                  type="primary"
+                  :icon="VideoPlay"
+                  aria-label="播放音频"
+                  title="播放音频"
+                  @click="openPlay(row)"
+                >
+                  播放
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
 
         <el-dialog v-model="playVisible" title="音频播放" width="560px" destroy-on-close>
           <div v-if="playingRecording" class="play-panel">

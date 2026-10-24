@@ -1,4 +1,4 @@
-/** 评价详情页权限：teacher 只读，课程督导/管理员可见写入控件 */
+/** 评价详情页权限：非上传者只读；上传者本人可校准；督导上传者可写评语，管理员均可 */
 import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
@@ -12,6 +12,8 @@ import type { EvaluationRead } from '@/types/evaluation'
 const evaluation: EvaluationRead = {
   id: 9,
   recording_id: 'rec-1',
+  uploaded_by_role: 'supervisor',
+  uploaded_by_id: 2,
   version: 1,
   mode: 'basic',
   rubric_version: 'legacy-v1',
@@ -100,7 +102,7 @@ describe('评价详情页权限', () => {
     vi.clearAllMocks()
   })
 
-  it('teacher 视角只读：看不到评语输入与校准表单', async () => {
+  it('teacher 视角只读（非上传者）：看不到评语输入与校准表单', async () => {
     const wrapper = await mountView('teacher')
     // 等待异步加载
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -113,7 +115,7 @@ describe('评价详情页权限', () => {
     expect(calibrationSection.props('canWrite')).toBe(false)
   })
 
-  it('课程督导视角：可写评语与校准', async () => {
+  it('督导上传者视角：可写评语与校准', async () => {
     const wrapper = await mountView('supervisor')
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
@@ -124,27 +126,20 @@ describe('评价详情页权限', () => {
     expect(calibrationSection.props('canWrite')).toBe(true)
   })
 
-  it('督导可审核任意课程的评价（多对多经录音关联，不再按课程绑定）', async () => {
-    const { getCourse } = await import('@/api/courses')
-    vi.mocked(getCourse).mockResolvedValueOnce({
-      id: 1,
-      code: 'MATH-002',
-      name: '测试课程',
-      location: '建筑',
-      class_name: '2026 级 2 班',
-      schedules: [{ weekday: 2, start_time: '10:00', end_time: '11:40' }],
-      assessment_form: 'percent',
-      description: null,
-      teacher_id: 3,
-      teacher_name: '赵老师',
-      status: 'not_started',
-      created_at: '2026-10-01T08:00:00Z',
+  it('教师上传者本人可校准，但不可写督导评语', async () => {
+    const { getEvaluationById } = await import('@/api/evaluations')
+    vi.mocked(getEvaluationById).mockResolvedValueOnce({
+      ...evaluation,
+      uploaded_by_role: 'teacher',
+      uploaded_by_id: 3,
     })
-    const wrapper = await mountView('supervisor')
+    const wrapper = await mountView('teacher')
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
     const reviewSection = wrapper.findComponent({ name: 'ReviewSection' })
-    expect(reviewSection.props('canWrite')).toBe(true)
+    const calibrationSection = wrapper.findComponent({ name: 'CalibrationSection' })
+    expect(reviewSection.props('canWrite')).toBe(false)
+    expect(calibrationSection.props('canWrite')).toBe(true)
   })
 })

@@ -1,82 +1,86 @@
-"""督导听课关联接口：课程—督导—音频三要素的建立与「我查过的课」聚合查询。"""
+"""督导课程成员接口：加入/退出课程，以及「我查过的课」聚合查询。"""
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DatabaseSession, require_role
 from app.api.v1.endpoints.courses import _schedule_matches, get_accessible_course
-from app.models import Course, Recording, SupervisionLink
+from app.models import Course, CourseSupervisor
 from app.schemas.business import (
     COURSE_TIME_PATTERN,
     Role,
     SupervisedCourseRead,
-    SupervisionLinkCreate,
 )
 
 router = APIRouter()
 
 
-def _serialize_link(link: SupervisionLink) -> dict[str, object]:
+def _serialize_membership(membership: CourseSupervisor) -> dict[str, object]:
     return {
-        "id": link.id,
-        "course_id": link.course_id,
-        "supervisor_id": link.supervisor_id,
-        "recording_id": link.recording_id,
-        "created_at": link.created_at,
+        "id": membership.id,
+        "course_id": membership.course_id,
+        "supervisor_id": membership.supervisor_id,
+        "created_at": membership.created_at,
     }
 
 
-@router.post("/courses/{course_id}/supervision-links", status_code=status.HTTP_201_CREATED)
-def create_supervision_link(
+@router.post("/courses/{course_id}/join", status_code=status.HTTP_201_CREATED)
+def join_course(
     course_id: int,
-    body: SupervisionLinkCreate,
     user: CurrentUser,
     db: DatabaseSession,
     response: Response,
 ) -> dict[str, object]:
-    """督导上传音频成功后将音频与课程关联。
-
-    幂等：同一督导重复关联同一音频返回已有关联记录（HTTP 200）。
-    同一督导对同一课程多次听课可产生多条关联。
-    """
+    """督导主动加入某门课程；重复加入返回已有关联（幂等）。"""
     require_role(user, Role.SUPERVISOR.value)
     get_accessible_course(db, user, course_id)
-    recording = db.get(Recording, body.recording_id)
-    if recording is None or recording.course_id != course_id:
-        raise HTTPException(status_code=404, detail="Recording not found in this course")
-
     existing = db.scalar(
-        select(SupervisionLink).where(
-            SupervisionLink.supervisor_id == user.id,
-            SupervisionLink.recording_id == recording.id,
+        select(CourseSupervisor).where(
+            CourseSupervisor.course_id == course_id,
+            CourseSupervisor.supervisor_id == user.id,
         )
     )
     if existing is not None:
         response.status_code = status.HTTP_200_OK
-        return {"code": 0, "message": "already linked", "data": _serialize_link(existing)}
+        return {"code": 0, "message": "already joined", "data": _serialize_membership(existing)}
 
-    link = SupervisionLink(course_id=course_id, supervisor_id=user.id, recording_id=recording.id)
-    db.add(link)
+    membership = CourseSupervisor(course_id=course_id, supervisor_id=user.id)
+    db.add(membership)
     try:
         db.commit()
     except IntegrityError:
-        # 并发重复提交：唯一约束兜底，回退后读取已有关联
         db.rollback()
         existing = db.scalar(
-            select(SupervisionLink).where(
-                SupervisionLink.supervisor_id == user.id,
-                SupervisionLink.recording_id == recording.id,
+            select(CourseSupervisor).where(
+                CourseSupervisor.course_id == course_id,
+                CourseSupervisor.supervisor_id == user.id,
             )
         )
         if existing is None:
             raise
         response.status_code = status.HTTP_200_OK
-        return {"code": 0, "message": "already linked", "data": _serialize_link(existing)}
-    db.refresh(link)
-    return {"code": 0, "message": "success", "data": _serialize_link(link)}
+        return {"code": 0, "message": "already joined", "data": _serialize_membership(existing)}
+    db.refresh(membership)
+    return {"code": 0, "message": "success", "data": _serialize_membership(membership)}
+
+
+@router.delete("/courses/{course_id}/join", status_code=status.HTTP_204_NO_CONTENT)
+def leave_course(course_id: int, user: CurrentUser, db: DatabaseSession) -> Response:
+    """督导退出已加入的课程。"""
+    require_role(user, Role.SUPERVISOR.value)
+    membership = db.scalar(
+        select(CourseSupervisor).where(
+            CourseSupervisor.course_id == course_id,
+            CourseSupervisor.supervisor_id == user.id,
+        )
+    )
+    if membership is not None:
+        db.delete(membership)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/supervisions/my-courses")
@@ -89,17 +93,15 @@ def list_my_supervised_courses(
     time: Annotated[str | None, Query(pattern=COURSE_TIME_PATTERN)] = None,
     name: Annotated[str | None, Query(max_length=200)] = None,
 ) -> dict[str, object]:
-    """我查过的课：按课程去重，展示最近一次关联时间。
+    """我查过的课：督导主动加入的课程，按加入时间倒序展示。
 
     四条件（教师名称、上课地点、时间、课程名称）支持组合查询。
     """
     require_role(user, Role.SUPERVISOR.value)
-    last_linked = func.max(SupervisionLink.created_at).label("last_linked_at")
     rows = db.execute(
-        select(SupervisionLink.course_id, last_linked)
-        .where(SupervisionLink.supervisor_id == user.id)
-        .group_by(SupervisionLink.course_id)
-        .order_by(last_linked.desc())
+        select(CourseSupervisor.course_id, CourseSupervisor.created_at)
+        .where(CourseSupervisor.supervisor_id == user.id)
+        .order_by(CourseSupervisor.created_at.desc())
     ).all()
     course_ids = [row.course_id for row in rows]
     loaded = {
@@ -135,7 +137,7 @@ def list_my_supervised_courses(
                 teacher_name=course.teacher_name,
                 status=course.status,
                 created_at=course.created_at,
-                last_linked_at=row.last_linked_at,
+                joined_at=row.created_at,
             )
         )
     return {"code": 0, "message": "success", "data": items}

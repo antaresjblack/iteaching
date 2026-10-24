@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Refresh, Search, View } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { listMySupervisedCourses } from '@/api/supervisions'
+import { leaveCourse, listMySupervisedCourses } from '@/api/supervisions'
 import { LOCATION_GROUPS, type CourseQuery, type SupervisedCourseRead } from '@/types/course'
 import { formatDateTime } from '@/utils/format'
 import { formatSchedules, WEEKDAY_LABELS } from '@/utils/course'
@@ -65,6 +66,21 @@ function openDetail(row: SupervisedCourseRead): void {
   void router.push({ name: 'course-detail', params: { id: row.id } })
 }
 
+async function handleLeave(row: SupervisedCourseRead): Promise<void> {
+  await ElMessageBox.confirm(
+    `退出后将从「我查过的课」中移除课程「${row.name}」，确认退出？`,
+    '退出课程',
+    { confirmButtonText: '退出', cancelButtonText: '取消', type: 'warning' },
+  )
+  try {
+    await leaveCourse(row.id)
+    ElMessage.success('已退出课程')
+    void load()
+  } catch {
+    // 错误已由 http 层统一提示
+  }
+}
+
 void load()
 </script>
 
@@ -73,7 +89,7 @@ void load()
     <div class="page-header">
       <div>
         <h2 class="page-title">我查过的课</h2>
-        <p class="page-subtitle">按课程去重，展示你关联过的全部课程与最近一次关联时间</p>
+        <p class="page-subtitle">展示你主动加入的全部课程与加入时间</p>
       </div>
       <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
     </div>
@@ -132,7 +148,7 @@ void load()
 
     <el-empty
       v-else-if="courses.length === 0"
-      :description="hasFilter ? '没有符合筛选条件的课程' : '还没有关联过课程，先去课程详情页上传听课音频吧'"
+      :description="hasFilter ? '没有符合筛选条件的课程' : '还没有加入过课程，去「全部课程」加入要督导的课程吧'"
     />
 
     <el-table v-else :data="courses" class="course-table" @row-click="openDetail">
@@ -154,12 +170,12 @@ void load()
           <span class="text-secondary">{{ formatSchedules(row.schedules) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="最近关联时间" width="170">
+      <el-table-column label="加入时间" width="170">
         <template #default="{ row }">
-          <span class="tabular text-secondary">{{ formatDateTime(row.last_linked_at) }}</span>
+          <span class="tabular text-secondary">{{ formatDateTime(row.joined_at) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="110" fixed="right">
+      <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button
             text
@@ -170,6 +186,15 @@ void load()
             @click.stop="openDetail(row)"
           >
             详情
+          </el-button>
+          <el-button
+            text
+            type="danger"
+            aria-label="退出课程"
+            title="退出课程"
+            @click.stop="handleLeave(row)"
+          >
+            退出
           </el-button>
         </template>
       </el-table-column>

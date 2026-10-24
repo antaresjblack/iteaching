@@ -10,7 +10,6 @@ from app.models import (
     EvaluationReview,
     Recording,
     ScoreCalibration,
-    SupervisionLink,
 )
 from app.schemas.business import CalibrationCreate, ReviewCreate, Role
 from app.services.recordings import (
@@ -33,34 +32,39 @@ def get_accessible_evaluation(
     return evaluation
 
 
+def _is_uploader(user: AccountBase, evaluation: Evaluation) -> bool:
+    recording = evaluation.recording
+    return (
+        recording is not None
+        and recording.uploaded_by_role == user.role
+        and recording.uploaded_by_id == user.id
+    )
+
+
+def require_calibration_permission(
+    db: DatabaseSession, user: AccountBase, evaluation: Evaluation
+) -> None:
+    """校准权限：管理员，或上传者本人（教师/督导均可校准自己上传的录音）。"""
+    if user.role == Role.ADMIN.value:
+        return
+    if _is_uploader(user, evaluation):
+        return
+    raise HTTPException(status_code=403, detail="Only the uploader can calibrate this evaluation")
+
+
 def require_review_permission(
     db: DatabaseSession, user: AccountBase, evaluation: Evaluation
 ) -> None:
-    """复核权限：管理员不受限；督导仅可复核分配给自己的评价任务。
-
-    「分配给自己」的判定：该音频由本人上传，或本人已建立课程—督导—音频关联。
-    """
+    """督导评语权限：管理员，或上传该音频的督导本人。"""
     if user.role == Role.ADMIN.value:
         return
     if user.role != Role.SUPERVISOR.value:
         raise HTTPException(status_code=403, detail="Only supervisors can review evaluations")
-    recording = evaluation.recording
-    if (
-        recording is not None
-        and recording.uploaded_by_role == Role.SUPERVISOR.value
-        and recording.uploaded_by_id == user.id
-    ):
+    if _is_uploader(user, evaluation):
         return
-    assigned = db.scalar(
-        select(SupervisionLink.id).where(
-            SupervisionLink.supervisor_id == user.id,
-            SupervisionLink.recording_id == evaluation.recording_id,
-        )
+    raise HTTPException(
+        status_code=403, detail="This evaluation is not assigned to the current supervisor"
     )
-    if assigned is None:
-        raise HTTPException(
-            status_code=403, detail="This evaluation is not assigned to the current supervisor"
-        )
 
 
 @router.get("/recordings/{recording_id}/evaluation")
@@ -92,6 +96,11 @@ def list_course_evaluations(
 ) -> dict[str, object]:
     get_accessible_course(db, user, course_id)
     base_query = select(Evaluation).join(Recording).where(Recording.course_id == course_id)
+    if user.role == Role.SUPERVISOR.value:
+        base_query = base_query.where(
+            Recording.uploaded_by_role == Role.SUPERVISOR.value,
+            Recording.uploaded_by_id == user.id,
+        )
     total = db.scalar(select(func.count()).select_from(base_query.subquery())) or 0
     evaluations = db.scalars(
         base_query.order_by(Recording.recorded_at.desc(), Evaluation.id.desc())
@@ -118,12 +127,14 @@ def compare_recent_classes(
     course_id: int, user: CurrentUser, db: DatabaseSession
 ) -> dict[str, object]:
     get_accessible_course(db, user, course_id)
+    query = select(Evaluation).join(Recording).where(Recording.course_id == course_id)
+    if user.role == Role.SUPERVISOR.value:
+        query = query.where(
+            Recording.uploaded_by_role == Role.SUPERVISOR.value,
+            Recording.uploaded_by_id == user.id,
+        )
     evaluations = db.scalars(
-        select(Evaluation)
-        .join(Recording)
-        .where(Recording.course_id == course_id)
-        .order_by(Recording.recorded_at.desc(), Evaluation.id.desc())
-        .limit(2)
+        query.order_by(Recording.recorded_at.desc(), Evaluation.id.desc()).limit(2)
     ).all()
     if len(evaluations) < 2:
         return {"code": 0, "message": "success", "data": None}
@@ -209,10 +220,11 @@ def calibrate_evaluation(
     db: DatabaseSession,
 ) -> dict[str, object]:
     evaluation = get_accessible_evaluation(db, user, evaluation_id)
-    require_review_permission(db, user, evaluation)
+    require_calibration_permission(db, user, evaluation)
     calibration = ScoreCalibration(
         evaluation_id=evaluation.id,
-        supervisor_id=user.id,
+        calibrated_by_id=user.id,
+        calibrated_by_role=user.role,
         overall_score=body.overall_score,
         dimension_scores=body.dimension_scores,
         comment=body.comment,

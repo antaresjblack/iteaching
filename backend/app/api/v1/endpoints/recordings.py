@@ -41,6 +41,24 @@ def uploader_name(db: DatabaseSession, recording: Recording) -> str | None:
     return getattr(account, "name", None) or account.username
 
 
+def recording_visible(user: AccountBase, recording: Recording) -> bool:
+    """录音可见性：
+    - 管理员：全部；
+    - 督导：仅自己上传的录音（教师上传的不可见）；
+    - 教师：本课程全部录音（自己 + 督导），跨课程访问由 get_accessible_course 拦截。
+    """
+    if user.role == Role.ADMIN.value:
+        return True
+    if user.role == Role.SUPERVISOR.value:
+        return (
+            recording.uploaded_by_role == Role.SUPERVISOR.value
+            and recording.uploaded_by_id == user.id
+        )
+    if user.role == Role.TEACHER.value:
+        return True
+    return False
+
+
 def get_accessible_recording(
     db: DatabaseSession, user: AccountBase, recording_id: str
 ) -> Recording:
@@ -48,6 +66,8 @@ def get_accessible_recording(
     if recording is None:
         raise HTTPException(status_code=404, detail="Recording not found")
     get_accessible_course(db, user, recording.course_id)
+    if not recording_visible(user, recording):
+        raise HTTPException(status_code=403, detail="Recording not visible to current account")
     return recording
 
 
@@ -139,6 +159,7 @@ def list_course_recordings(
         .where(Recording.course_id == course_id)
         .order_by(Recording.recorded_at.desc(), Recording.created_at.desc())
     ).all()
+    recordings = [item for item in recordings if recording_visible(user, item)]
     return {
         "code": 0,
         "message": "success",

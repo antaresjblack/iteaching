@@ -282,10 +282,16 @@ async def test_full_supervision_flow(
         assert (
             await client.get("/api/v1/courses?status=in_progress", headers=teacher_headers)
         ).json()["data"] == []
-        # 督导可编辑课程状态
-        updated = await client.patch(
+        # 督导不可编辑课程详细信息，管理员可以
+        supervisor_edit = await client.patch(
             f"/api/v1/courses/{course_id}",
             headers=supervisor_headers,
+            json={"status": "in_progress"},
+        )
+        assert supervisor_edit.status_code == 403
+        updated = await client.patch(
+            f"/api/v1/courses/{course_id}",
+            headers=admin_headers,
             json={"status": "in_progress"},
         )
         assert updated.status_code == 200
@@ -473,24 +479,72 @@ async def test_full_supervision_flow(
 
         evaluation_id = evaluation.json()["data"]["id"]
         # --------------------------------------------------------------
-        # 8. 督导校准与评语：教师尝试校准 → 403；督导校准总分与维度分 → 201；
-        #    督导追加人工评语 → 201
-        #    （督导需先将该音频关联为本人听课任务，才具备复核权限）
+        # 8. 校准与评语（上传者本人可校准/评语）：
+        #   a) 教师可校准自己上传的录音 → 201；
+        #   b) 督导不能校准/评语教师上传的录音 → 403；
+        #   c) 督导主动加入课程 → 201，重复加入幂等 → 200；
+        #   d) 督导上传自己的听课录音并校准/评语 → 201。
         # --------------------------------------------------------------
-        link = await client.post(
-            f"/api/v1/courses/{course_id}/supervision-links",
-            headers=supervisor_headers,
-            json={"recording_id": recording_id},
-        )
-        assert link.status_code == 201
         teacher_calibration = await client.post(
             f"/api/v1/evaluations/{evaluation_id}/calibrations",
             headers=teacher_headers,
-            json={"overall_score": 95, "comment": "teacher cannot calibrate"},
+            json={"overall_score": 82, "comment": "教师本人校准"},
         )
-        assert teacher_calibration.status_code == 403
-        calibration = await client.post(
+        assert teacher_calibration.status_code == 201
+
+        supervisor_calibration = await client.post(
             f"/api/v1/evaluations/{evaluation_id}/calibrations",
+            headers=supervisor_headers,
+            json={"overall_score": 90, "comment": "督导不能校准教师录音"},
+        )
+        assert supervisor_calibration.status_code == 403
+        supervisor_review = await client.post(
+            f"/api/v1/evaluations/{evaluation_id}/reviews",
+            headers=supervisor_headers,
+            json={"comment": "督导不能评语教师录音"},
+        )
+        assert supervisor_review.status_code == 403
+
+        join = await client.post(f"/api/v1/courses/{course_id}/join", headers=supervisor_headers)
+        assert join.status_code == 201
+        duplicate_join = await client.post(
+            f"/api/v1/courses/{course_id}/join", headers=supervisor_headers
+        )
+        assert duplicate_join.status_code == 200
+        assert duplicate_join.json()["data"]["id"] == join.json()["data"]["id"]
+
+        # 督导上传自己的听课录音，并完成校准与评语（教师可见）
+        supervisor_upload = await client.post(
+            f"/api/v1/courses/{course_id}/recordings",
+            headers=supervisor_headers,
+            data={"recorded_at": "2026-09-30T09:00:00Z", "consent_confirmed": "true"},
+            files={"file": ("supervision.wav", b"fake audio", "audio/wav")},
+        )
+        assert supervisor_upload.status_code == 201, supervisor_upload.text
+        supervisor_recording_id = supervisor_upload.json()["data"]["recording_id"]
+        supervisor_task_id = supervisor_upload.json()["data"]["task_id"]
+        supervisor_claim = await client.post("/api/v1/internal/tasks/claim", headers=worker_headers)
+        supervisor_claim_headers = {
+            **worker_headers,
+            "X-Task-Claim-Token": supervisor_claim.json()["data"]["claim_token"],
+        }
+        assert supervisor_claim.json()["data"]["task_id"] == supervisor_task_id
+        supervisor_result = {**result, "transcript": "督导听课", "overall_score": 80}
+        assert (
+            await client.post(
+                f"/api/v1/internal/tasks/{supervisor_task_id}/result",
+                headers=supervisor_claim_headers,
+                json=supervisor_result,
+            )
+        ).status_code == 200
+        supervisor_evaluation = await client.get(
+            f"/api/v1/recordings/{supervisor_recording_id}/evaluation",
+            headers=supervisor_headers,
+        )
+        assert supervisor_evaluation.status_code == 200
+        supervisor_evaluation_id = supervisor_evaluation.json()["data"]["id"]
+        calibration = await client.post(
+            f"/api/v1/evaluations/{supervisor_evaluation_id}/calibrations",
             headers=supervisor_headers,
             json={
                 "overall_score": 82,
@@ -501,40 +555,41 @@ async def test_full_supervision_flow(
         assert calibration.status_code == 201
 
         review = await client.post(
-            f"/api/v1/evaluations/{evaluation_id}/reviews",
+            f"/api/v1/evaluations/{supervisor_evaluation_id}/reviews",
             headers=supervisor_headers,
             json={"comment": "下一次课堂增加学生表达机会"},
         )
         assert review.status_code == 201
 
         # --------------------------------------------------------------
-        # 8.1 督导端复听与关联能力：
-        #   a) 课程音频列表区分上传者角色（教师音频督导只读）；
-        #   b) 重复关联同一音频幂等（200 且返回已有关联）；
-        #   c) 我查过的课按课程去重并带最近关联时间，支持四条件筛选；
+        # 8.1 督导端可见性与「我查过的课」：
+        #   a) 督导只能看到自己上传的录音（教师上传的不可见）；
+        #   b) 教师能看到督导上传的录音；
+        #   c) 我查过的课=主动加入的课程（带 joined_at，支持四条件筛选）；
         #   d) 督导不可删除教师上传的音频；
         #   e) 本人修改密码后旧密码失效，管理员可强制重置密码。
         # --------------------------------------------------------------
-        course_recordings = await client.get(
+        supervisor_recordings = await client.get(
             f"/api/v1/courses/{course_id}/recordings", headers=supervisor_headers
         )
-        assert course_recordings.status_code == 200
-        listed = course_recordings.json()["data"]
-        assert listed[0]["uploaded_by_role"] == "teacher"
+        assert supervisor_recordings.status_code == 200
+        listed = supervisor_recordings.json()["data"]
+        assert [item["uploaded_by_role"] for item in listed] == ["supervisor"]
         assert listed[0]["description"] is None
 
-        duplicate_link = await client.post(
-            f"/api/v1/courses/{course_id}/supervision-links",
-            headers=supervisor_headers,
-            json={"recording_id": recording_id},
+        teacher_recordings = await client.get(
+            f"/api/v1/courses/{course_id}/recordings", headers=teacher_headers
         )
-        assert duplicate_link.status_code == 200
-        assert duplicate_link.json()["data"]["id"] == link.json()["data"]["id"]
+        assert teacher_recordings.status_code == 200
+        assert {item["uploaded_by_role"] for item in teacher_recordings.json()["data"]} == {
+            "teacher",
+            "supervisor",
+        }
 
         my_courses = await client.get("/api/v1/supervisions/my-courses", headers=supervisor_headers)
         assert my_courses.status_code == 200
         assert [item["id"] for item in my_courses.json()["data"]] == [course_id]
-        assert my_courses.json()["data"][0]["last_linked_at"]
+        assert my_courses.json()["data"][0]["joined_at"]
         no_match = await client.get(
             "/api/v1/supervisions/my-courses",
             headers=supervisor_headers,

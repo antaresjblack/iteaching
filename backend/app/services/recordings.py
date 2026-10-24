@@ -167,6 +167,8 @@ def serialize_evaluation(evaluation: Evaluation) -> dict[str, object]:
         "dimension_count": 6,
         "id": evaluation.id,
         "recording_id": evaluation.recording_id,
+        "uploaded_by_role": evaluation.recording.uploaded_by_role,
+        "uploaded_by_id": evaluation.recording.uploaded_by_id,
         "version": evaluation.version,
         "mode": evaluation.mode,
         "rubric_version": evaluation.raw_result.get("rubric_version") or "legacy-v1",
@@ -212,6 +214,8 @@ def serialize_evaluation(evaluation: Evaluation) -> dict[str, object]:
         "calibrations": [
             {
                 "id": item.id,
+                "calibrated_by_role": item.calibrated_by_role,
+                "calibrated_by_id": item.calibrated_by_id,
                 "overall_score": item.overall_score,
                 "dimension_scores": item.dimension_scores,
                 "comment": redact_text(item.comment or ""),

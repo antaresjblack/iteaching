@@ -149,7 +149,7 @@ def read_course(course_id: int, user: CurrentUser, db: DatabaseSession) -> dict[
 def update_course(
     course_id: int, body: CourseUpdate, user: CurrentUser, db: DatabaseSession
 ) -> dict[str, object]:
-    require_role(user, Role.ADMIN.value, Role.SUPERVISOR.value)
+    require_role(user, Role.ADMIN.value)
     course = get_accessible_course(db, user, course_id)
     data = body.model_dump(exclude_unset=True)
 

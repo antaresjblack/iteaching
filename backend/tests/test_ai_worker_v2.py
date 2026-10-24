@@ -18,7 +18,6 @@ from app.models import (
     Course,
     ProcessingTask,
     Recording,
-    SupervisionLink,
     Supervisor,
     Teacher,
 )
@@ -164,7 +163,8 @@ def backend(
                 Recording(
                     id=f"r{n}",
                     course_id=course.id,
-                    uploaded_by_id=teacher.id,
+                    uploaded_by_id=supervisor.id,
+                    uploaded_by_role="supervisor",
                     storage_path=str(audio),
                     original_filename="a.wav",
                     media_type="audio/wav",
@@ -175,12 +175,6 @@ def backend(
                 )
             )
             db.add(ProcessingTask(id=f"t{n}", recording_id=f"r{n}", status="QUEUED", attempts=0))
-            # 督导需与音频建立听课关联，才具备复核（校准/评语）权限
-            db.add(
-                SupervisionLink(
-                    course_id=course.id, supervisor_id=supervisor.id, recording_id=f"r{n}"
-                )
-            )
         db.commit()
     app = create_application()
     app.dependency_overrides[get_db] = db_override

@@ -5,6 +5,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { createCourse, listCourses, updateCourse } from '@/api/courses'
+import { joinCourse } from '@/api/supervisions'
 import { searchTeachers, type TeacherCandidate } from '@/api/users'
 import WeeklyTimetable from '@/components/WeeklyTimetable.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -92,7 +93,9 @@ const batch = reactive({
   endWeek: 16,
 })
 
-const canManage = computed(() => auth.user?.role === 'supervisor' || auth.user?.role === 'admin')
+/** 编辑课程仅管理员可见（督导不允许编辑课程详细信息） */
+const canEdit = computed(() => auth.user?.role === 'admin')
+const isSupervisor = computed(() => auth.user?.role === 'supervisor')
 
 /** 新建课程仅管理员可见；督导端首页按要求移除新建入口（仅保留编辑） */
 const canCreate = computed(() => auth.user?.role === 'admin')
@@ -402,6 +405,16 @@ function goDetail(row: CourseRead): void {
   void router.push({ name: 'course-detail', params: { id: row.id } })
 }
 
+/** 督导主动加入课程（幂等）：加入后可在「我查过的课」中看到 */
+async function handleJoin(row: CourseRead): Promise<void> {
+  try {
+    await joinCourse(row.id)
+    ElMessage.success(`已加入课程「${row.name}」`)
+  } catch {
+    // 错误已由 http 层统一提示
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -529,9 +542,10 @@ onMounted(load)
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canManage" label="操作" width="90" fixed="right">
+      <el-table-column v-if="canEdit || isSupervisor" label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <el-button text type="primary" @click.stop="openEdit(row)">编辑</el-button>
+          <el-button v-if="canEdit" text type="primary" @click.stop="openEdit(row)">编辑</el-button>
+          <el-button v-if="isSupervisor" text type="primary" @click.stop="handleJoin(row)">加入</el-button>
         </template>
       </el-table-column>
     </el-table>

@@ -16,7 +16,7 @@ import type { CourseRead } from '@/types/course'
 import type { EvaluationRead } from '@/types/evaluation'
 import { DIMENSION_LABELS, readableFeedback } from '@/utils/dimensions'
 import { formatScore } from '@/utils/format'
-import { canReviewCourse } from '@/utils/roles'
+import { canCalibrateEvaluation, canReviewEvaluation } from '@/utils/roles'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,8 +34,23 @@ const notReady = computed(
   () => !loading.value && error.value instanceof ApiError && error.value.status === 404,
 )
 
-/** 写权限：管理员与督导均可（督导经录音与课程多对多关联） */
-const canWrite = computed(() => canReviewCourse(auth.user))
+/** 校准权限：管理员或上传者本人（教师/督导均可校准自己上传的录音） */
+const canCalibrate = computed(() =>
+  canCalibrateEvaluation(
+    auth.user,
+    evaluation.value?.uploaded_by_role ?? '',
+    evaluation.value?.uploaded_by_id ?? 0,
+  ),
+)
+
+/** 评语权限：管理员或上传该音频的督导本人 */
+const canReview = computed(() =>
+  canReviewEvaluation(
+    auth.user,
+    evaluation.value?.uploaded_by_role ?? '',
+    evaluation.value?.uploaded_by_id ?? 0,
+  ),
+)
 
 /** 校准后总分与 AI 原始分不同时展示差异 */
 const showModelScore = computed(() => {
@@ -48,7 +63,7 @@ async function load(): Promise<void> {
   error.value = null
   try {
     evaluation.value = await getEvaluationById(evaluationId)
-    // 课程信息用于写权限判断；加载失败不影响只读展示（后端会拦截写入）
+    // 课程信息用于展示课程名称；加载失败不影响只读展示（后端会拦截写入）
     const courseIdParam = route.query.course_id
     if (typeof courseIdParam === 'string') {
       course.value = await getCourse(Number(courseIdParam)).catch(() => null)
@@ -210,7 +225,7 @@ void load()
         <ReviewSection
           :evaluation-id="evaluation.id"
           :reviews="evaluation.reviews"
-          :can-write="canWrite"
+          :can-write="canReview"
           @saved="refreshAfterWrite"
         />
       </section>
@@ -220,7 +235,7 @@ void load()
           :evaluation-id="evaluation.id"
           :calibrations="evaluation.calibrations"
           :model-overall-score="evaluation.model_overall_score"
-          :can-write="canWrite"
+          :can-write="canCalibrate"
           @saved="refreshAfterWrite"
         />
       </section>

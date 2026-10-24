@@ -5,7 +5,6 @@ import { del, get, getBlob, post } from './http'
 import type {
   CourseRecording,
   RecordingStatus,
-  SupervisionLink,
   UploadData,
   UploadPayload,
 } from '@/types/recording'
@@ -45,16 +44,6 @@ export function getRecordingStatus(id: string): Promise<RecordingStatus> {
 /** GET /courses/{id}/recordings（课程音频列表，含上传者角色与姓名） */
 export function listCourseRecordings(courseId: number): Promise<CourseRecording[]> {
   return get<CourseRecording[]>(`/courses/${courseId}/recordings`)
-}
-
-/** POST /courses/{id}/supervision-links（督导上传后关联音频；重复关联幂等） */
-export function createSupervisionLink(
-  courseId: number,
-  recordingId: string,
-): Promise<SupervisionLink> {
-  return post<SupervisionLink>(`/courses/${courseId}/supervision-links`, {
-    recording_id: recordingId,
-  })
 }
 
 /** GET /recordings/{id}/audio → Blob（需 Bearer 头，用 blob 方式获取） */

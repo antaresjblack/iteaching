@@ -46,6 +46,9 @@ export interface ReviewRead {
 /** 人工校准记录（后端按 id 倒序应用最新一次校准） */
 export interface CalibrationRead {
   id: number
+  /** 校准者角色与账号 id：教师/督导均可校准自己上传的录音 */
+  calibrated_by_role: 'admin' | 'supervisor' | 'teacher'
+  calibrated_by_id: number
   overall_score: number | null
   dimension_scores: Record<string, number> | null
   comment: string
@@ -78,6 +81,9 @@ export interface EvaluationRead {
   dimension_count?: number
   id: number
   recording_id: string
+  /** 上传者角色与账号 id：用于判断当前账号是否为上传者本人（可校准自己上传的录音） */
+  uploaded_by_role: 'admin' | 'supervisor' | 'teacher'
+  uploaded_by_id: number
   version: number
   mode: EvaluationMode
   /** v2 的评价标准版本；v1 或缺失时为 legacy-v1 */
