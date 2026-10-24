@@ -242,6 +242,10 @@ class RecordingRead(BaseModel):
     duration_seconds: float
     description: str | None = None
     created_at: datetime
+    # 处理任务状态随列表一并返回，前端无需再逐条查询即可区分处理中/失败
+    status: Literal["QUEUED", "PROCESSING", "SUCCEEDED", "FAILED"] = "SUCCEEDED"
+    # 仅 FAILED 时有值，已脱敏
+    error: str | None = None
 
 
 class SupervisedCourseRead(CourseRead):

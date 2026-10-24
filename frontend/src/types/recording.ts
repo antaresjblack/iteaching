@@ -46,6 +46,10 @@ export interface CourseRecording {
   duration_seconds: number
   description: string | null
   created_at: string
+  /** 处理任务状态：随列表一并返回，用于区分处理中/失败 */
+  status: TaskStatus
+  /** 仅 FAILED 时有值，已由后端脱敏 */
+  error?: string | null
 }
 
 /** 本地上传记录（存 Pinia + localStorage，用于页面刷新后仍可跟踪任务） */

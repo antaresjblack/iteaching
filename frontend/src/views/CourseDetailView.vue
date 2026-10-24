@@ -80,7 +80,8 @@ const myRecordings = computed(() => {
     )
     .map((item) => {
       const local = localByRecordingId.get(item.id)
-      return { ...item, status: local?.status ?? 'SUCCEEDED', error: local?.error ?? null }
+      // 没有本地记录时以服务器状态为准，避免把处理中/失败的录音误显示为已完成
+      return { ...item, status: local?.status ?? item.status, error: local?.error ?? item.error ?? null }
     })
 })
 
@@ -444,6 +445,7 @@ onBeforeUnmount(() => {
             <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button
+                  v-if="row.status === 'SUCCEEDED'"
                   text
                   type="primary"
                   :icon="View"

@@ -41,6 +41,18 @@ def uploader_name(db: DatabaseSession, recording: Recording) -> str | None:
     return getattr(account, "name", None) or account.username
 
 
+def task_status(task: ProcessingTask | None) -> str:
+    """列表项状态：无任务视为已完成（兼容历史数据）。"""
+    return task.status if task is not None else "SUCCEEDED"
+
+
+def task_error(task: ProcessingTask | None) -> str | None:
+    """仅失败任务返回脱敏后的错误原因。"""
+    if task is None or task.status != "FAILED":
+        return None
+    return redact_text(task.last_error or "")
+
+
 def recording_visible(user: AccountBase, recording: Recording) -> bool:
     """录音可见性：
     - 管理员：全部；
@@ -160,6 +172,17 @@ def list_course_recordings(
         .order_by(Recording.recorded_at.desc(), Recording.created_at.desc())
     ).all()
     recordings = [item for item in recordings if recording_visible(user, item)]
+    # 一次性取出这些录音的处理任务，避免逐条查询
+    tasks: dict[str, ProcessingTask] = {}
+    if recordings:
+        tasks = {
+            task.recording_id: task
+            for task in db.scalars(
+                select(ProcessingTask).where(
+                    ProcessingTask.recording_id.in_([item.id for item in recordings])
+                )
+            ).all()
+        }
     return {
         "code": 0,
         "message": "success",
@@ -176,6 +199,8 @@ def list_course_recordings(
                 duration_seconds=item.duration_seconds,
                 description=item.description,
                 created_at=item.created_at,
+                status=task_status(tasks.get(item.id)),
+                error=task_error(tasks.get(item.id)),
             )
             for item in recordings
         ],
