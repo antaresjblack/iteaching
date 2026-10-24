@@ -52,3 +52,11 @@ export function addCalibration(
 ): Promise<CalibrationRead> {
   return post<CalibrationRead>(`/evaluations/${evaluationId}/calibrations`, body)
 }
+
+export interface ComparisonAnalysis { analysis: string; version: string }
+export function readComparisonAnalysis(courseId: number): Promise<ComparisonAnalysis | null> {
+  return get<ComparisonAnalysis | null>(`/courses/${courseId}/comparison/analysis`)
+}
+export function generateComparisonAnalysis(courseId: number): Promise<ComparisonAnalysis> {
+  return post<ComparisonAnalysis>(`/courses/${courseId}/comparison/analysis`, {}, { timeout: 150000 })
+}

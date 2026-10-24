@@ -29,7 +29,18 @@ class ModelProvider:
             "结构字段id、indicator_id、status、priority仍按约定返回英文枚举；quote必须保留逐字原文，不翻译不改写。"
             "评价仅依赖课堂转写证据，教学目标不能作为已完成教学的证据。"
         )
-        if task == "evaluate":
+        if task == "comparison_analysis":
+            instruction += (
+                '输出结构为{"analysis":"中文综合解读"}。正文分点呈现：使用Markdown无序列表（每行以"- "开头），共4至6条，每条一句话、简明扼要，'
+                '重点词、关键结论或数字用**双星号加粗**标出。'
+                '输入是两次已有评价，不是课堂原文。综合评分变化、问题、改进建议、督导评语与校准说明，'
+                '说明已有改善线索、持续问题及下一步具体建议，区分AI初评和督导意见。'
+                '不照搬逐条原文，不编造引用、评语或课堂事实。建议被提出不等于已经实施，'
+                '问题本次未提及不等于已解决，评分上升不能直接推断学生掌握或因果效果。'
+                '评分含人工校准；缺失分不按零分计算。comparable为false时不得推导分数涨跌结论。'
+                '没有督导评语时直接说明暂无，不虚构；不要输出英文维度ID或内部字段。'
+            )
+        elif task == "evaluate":
             instruction += (
                 '输出结构为{"summary":"摘要","indicators":[{"id":"指标ID",'
                 '"status":"evaluated或insufficient_evidence","score":0,'

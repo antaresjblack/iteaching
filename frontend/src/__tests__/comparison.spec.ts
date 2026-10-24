@@ -7,7 +7,7 @@ import type { ComparisonResult } from '@/types/evaluation'
 
 const chart = vi.hoisted(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() }))
 vi.mock('echarts/core', () => ({ use: vi.fn(), init: vi.fn(() => chart) }))
-vi.mock('@/api/evaluations', () => ({ compareCourse: vi.fn() }))
+vi.mock('@/api/evaluations', () => ({ compareCourse: vi.fn(), readComparisonAnalysis: vi.fn(async () => ({ analysis: '两次课堂需加强反馈', version: 'comparison-v1' })), generateComparisonAnalysis: vi.fn(), getEvaluationById: vi.fn(async () => ({ problems: ['[pre_assessment] 检查不足'], suggestions: [{ text: '增加检查', source: 'ai' }], reviews: [{ id: 1, comment: '建议加强反馈', created_at: '2026-10-21T08:00:00Z' }], calibrations: [] })) }))
 
 function fixture(comparable = true): ComparisonResult {
   const base = { evaluation_id: 1, recording_id: 'a', recorded_at: '2026-10-21T08:00:00Z', overall_score: null }
@@ -28,9 +28,12 @@ describe('部分评分对比', () => {
     expect(wrapper.find('.comparison-chart').exists()).toBe(true)
     expect(wrapper.text()).toContain('证据不足')
     expect(wrapper.text()).toContain('+20.0')
+    expect(wrapper.text()).toContain('两次课堂需加强反馈')
+    expect(wrapper.text()).not.toContain('建议加强反馈')
+    expect(wrapper.text()).not.toContain('【前测】 检查不足')
     expect(wrapper.text()).toContain('+0.0')
     const option = chart.setOption.mock.calls.at(-1)![0]
-    expect(option.series[0].data.slice(0, 3)).toEqual([60, '-', 0])
+    expect(option.series[1].data.slice(0, 3)).toEqual([60, '-', 0])
     vi.mocked(compareCourse).mockResolvedValue(null)
     await wrapper.find('button').trigger('click')
     await flushPromises()

@@ -231,3 +231,33 @@ def calibrate_evaluation(
             "created_at": calibration.created_at,
         },
     }
+
+
+def _comparison_analysis(course_id: int, user: CurrentUser, db: DatabaseSession, generate: bool):
+    from app.services.comparison_analysis import analyze
+
+    comparison = compare_recent_classes(course_id, user, db)["data"]
+    if comparison is None:
+        raise HTTPException(422, "至少需要两次已完成评价")
+    payload = {"comparison": comparison, "evaluations": []}
+    for side in ("previous", "latest"):
+        evaluation = get_accessible_evaluation(db, user, comparison[side]["evaluation_id"])
+        detail = serialize_evaluation(evaluation)
+        payload["evaluations"].append({
+            "position": side,
+            **{key: detail[key] for key in (
+                "id", "rubric_version", "mode", "model_overall_score", "model_dimension_scores",
+                "overall_score", "dimension_scores", "problems", "suggestions", "reviews", "calibrations"
+            )},
+        })
+    return {"code": 0, "message": "success", "data": analyze(payload, generate)}
+
+
+@router.get("/courses/{course_id}/comparison/analysis")
+def read_comparison_analysis(course_id: int, user: CurrentUser, db: DatabaseSession):
+    return _comparison_analysis(course_id, user, db, False)
+
+
+@router.post("/courses/{course_id}/comparison/analysis")
+def generate_comparison_analysis(course_id: int, user: CurrentUser, db: DatabaseSession):
+    return _comparison_analysis(course_id, user, db, True)
