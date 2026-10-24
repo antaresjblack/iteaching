@@ -3,6 +3,7 @@ import os
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
 from .config import api_key, load_env
 
 
@@ -13,7 +14,10 @@ class ProviderError(Exception):
 class ModelProvider:
     def __init__(self):
         load_env()
-        self.url = os.getenv("ITEACHING_MODEL_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+        self.url = os.getenv(
+            "ITEACHING_MODEL_URL",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        )
         self.key = api_key()
         self.model = os.getenv("ITEACHING_MODEL", "qwen-plus")
         if not self.url.startswith("https://") or not self.key or not self.model:
@@ -32,13 +36,14 @@ class ModelProvider:
         if task == "comparison_analysis":
             instruction += (
                 '输出结构为{"analysis":"中文综合解读"}。正文分点呈现：使用Markdown无序列表（每行以"- "开头），共4至6条，每条一句话、简明扼要，'
-                '重点词、关键结论或数字用**双星号加粗**标出。'
-                '输入是两次已有评价，不是课堂原文。综合评分变化、问题、改进建议、督导评语与校准说明，'
-                '说明已有改善线索、持续问题及下一步具体建议，区分AI初评和督导意见。'
-                '不照搬逐条原文，不编造引用、评语或课堂事实。建议被提出不等于已经实施，'
-                '问题本次未提及不等于已解决，评分上升不能直接推断学生掌握或因果效果。'
-                '评分含人工校准；缺失分不按零分计算。comparable为false时不得推导分数涨跌结论。'
-                '没有督导评语时直接说明暂无，不虚构；不要输出英文维度ID或内部字段。'
+                "重点词、关键结论或数字用**双星号加粗**标出。"
+                "输入是两次已有评价，不是课堂原文。综合两次课堂的评分、问题与改进建议，"
+                "说明已有改善线索、持续问题及下一步具体建议。"
+                "校准后的分数与评语直接作为结论使用，不要评论其来源、是否人工调整或说明是否为空。"
+                "不照搬逐条原文，不编造引用、评语或课堂事实。"
+                "问题本次未提及不等于已解决，评分上升不能直接推断学生掌握或因果效果；建议是否已执行不属于本次解读范围。"
+                "缺失分不按零分计算；comparable为false时不得推导分数涨跌结论。"
+                "不要输出英文维度ID或内部字段。"
             )
         elif task == "evaluate":
             instruction += (
@@ -55,14 +60,29 @@ class ModelProvider:
                 '"action":"可执行行动","priority":"high或medium或low","verification":"验证方式"}]}。'
                 "indicator_id只能从allowed_indicator_ids原样选取英文ID，不能输出中文名或改写ID。仅针对输入有证据的指标提出建议，至多12条；优先针对评价中problems已确认的问题生成对应行动；没有可支持的问题时返回空列表，不能凑建议。"
             )
-        body = json.dumps({"model": self.model, "enable_thinking": False,
-                           "response_format": {"type": "json_object"}, "messages": [
-            {"role": "system", "content": instruction},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}
-        ]}, ensure_ascii=False).encode()
-        request = Request(self.url, data=body, headers={
-            "Content-Type": "application/json", "Authorization": "Bearer " + self.key
-        })
+        body = json.dumps(
+            {
+                "model": self.model,
+                "enable_thinking": False,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": instruction},
+                    {
+                        "role": "user",
+                        "content": json.dumps(payload, ensure_ascii=False),
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ).encode()
+        request = Request(
+            self.url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self.key,
+            },
+        )
         for attempt in range(2):
             try:
                 with urlopen(request, timeout=60) as response:

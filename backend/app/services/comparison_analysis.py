@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 ROOT = Path(__file__).resolve().parents[3]
 _lock = threading.Lock()
-PROMPT_VERSION = "comparison-v2"
+PROMPT_VERSION = "comparison-v3"
 
 
 def analyze(payload: dict, generate: bool = False) -> dict | None:
@@ -42,7 +42,9 @@ def analyze(payload: dict, generate: bool = False) -> dict | None:
         from iteaching_ai.provider import ModelProvider
 
         try:
-            result = ModelProvider().generate("comparison_analysis", json.loads(encoded))
+            result = ModelProvider().generate(
+                "comparison_analysis", json.loads(encoded)
+            )
         except Exception:
             raise HTTPException(502, "综合分析生成失败，请稍后重试") from None
         text = result.get("analysis") if isinstance(result, dict) else None
