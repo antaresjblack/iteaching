@@ -23,7 +23,6 @@ import type { CourseRead } from '@/types/course'
 import type { EvaluationListItem } from '@/types/evaluation'
 import type {
   CourseRecording,
-  LocalUploadRecord,
   RecordingStatus,
   UploadData,
 } from '@/types/recording'
@@ -68,8 +67,22 @@ const page = ref(1)
 const pageSize = 10
 const total = ref(0)
 
-// 本地上传记录（含 localStorage 兜底）
-const uploads = computed(() => recordingsStore.byCourse(courseId))
+// 本人上传的录音：以服务器为准（反映迁移后的归属），叠加本地状态用于处理中展示
+const myRecordings = computed(() => {
+  const localByRecordingId = new Map(
+    recordingsStore.byCourse(courseId).map((item) => [item.recording_id, item]),
+  )
+  return recordings.value
+    .filter(
+      (item) =>
+        item.uploaded_by_role === auth.user?.role &&
+        item.uploaded_by_id === auth.user?.id,
+    )
+    .map((item) => {
+      const local = localByRecordingId.get(item.id)
+      return { ...item, status: local?.status ?? 'SUCCEEDED', error: local?.error ?? null }
+    })
+})
 
 // 轮询：查询所有未结束上传记录的最新状态
 const polling = usePollingTask<RecordingStatus[]>(async () => {
@@ -219,9 +232,9 @@ function onUploaded(data: UploadData, filename: string, recordedAt: string): voi
 }
 
 /** SUCCEEDED 后按 recording_id 取评价并跳转 */
-async function viewEvaluation(record: LocalUploadRecord): Promise<void> {
+async function viewEvaluation(record: { id: string }): Promise<void> {
   try {
-    const evaluation = await getEvaluationByRecording(record.recording_id)
+    const evaluation = await getEvaluationByRecording(record.id)
     await router.push({
       name: 'evaluation-detail',
       params: { id: evaluation.id },
@@ -232,20 +245,22 @@ async function viewEvaluation(record: LocalUploadRecord): Promise<void> {
   }
 }
 
-async function handleDelete(record: LocalUploadRecord): Promise<void> {
+async function handleDelete(record: { id: string; original_filename: string }): Promise<void> {
   await ElMessageBox.confirm(
-    `删除后录音及其转写、评价、评语、校准记录将一并删除，且不可恢复。确认删除「${record.filename}」？`,
+    `删除后录音及其转写、评价、评语、校准记录将一并删除，且不可恢复。确认删除「${record.original_filename}」？`,
     '删除录音',
     { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
   )
   try {
-    await deleteRecording(record.recording_id)
-    recordingsStore.remove(record.recording_id)
+    await deleteRecording(record.id)
+    recordingsStore.remove(record.id)
     ElMessage.success('录音已删除')
+    void loadRecordings()
     if (activeTab.value === 'history') await loadHistory()
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
-      recordingsStore.remove(record.recording_id)
+      recordingsStore.remove(record.id)
+      void loadRecordings()
       ElMessage.success('服务器记录已不存在，本地记录已清除')
     }
     // 其他错误保留本地记录，避免误清理。
@@ -331,18 +346,24 @@ onBeforeUnmount(() => {
           </el-button>
         </div>
 
-        <!-- 本人上传的录音：可查看处理进度与评价 -->
+        <!-- 本人上传的录音：以服务器为准，可查看处理进度与评价 -->
         <h3 class="section-title">{{ isSupervisor ? '我的听课音频' : '我上传的录音' }}</h3>
-        <el-empty class="recording-empty" :image-size="56" v-if="uploads.length === 0" description="还没有上传过录音">
+        <el-skeleton v-if="recordingsLoading" :rows="3" animated />
+        <el-empty
+          class="recording-empty"
+          :image-size="56"
+          v-else-if="myRecordings.length === 0"
+          :description="isSupervisor ? '还没有上传过听课音频' : '还没有上传过录音'"
+        >
           <el-button type="primary" :icon="Upload" @click="uploadVisible = true">
             {{ isSupervisor ? '上传第一段听课音频' : '上传第一段课堂录音' }}
           </el-button>
         </el-empty>
 
-        <el-table v-else :data="uploads" class="uploads-table">
+        <el-table v-else :data="myRecordings" class="uploads-table">
           <el-table-column label="文件名" min-width="180">
             <template #default="{ row }">
-              <span class="filename">{{ row.filename }}</span>
+              <span class="filename">{{ row.original_filename }}</span>
             </template>
           </el-table-column>
           <el-table-column label="录制时间" width="160">
