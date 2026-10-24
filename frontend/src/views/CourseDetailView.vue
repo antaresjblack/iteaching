@@ -441,8 +441,18 @@ onBeforeUnmount(() => {
                 <span class="text-secondary">{{ row.description || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="110" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
+                <el-button
+                  text
+                  type="primary"
+                  :icon="View"
+                  aria-label="查看评价"
+                  title="查看评价"
+                  @click="viewEvaluation(row)"
+                >
+                  查看评价
+                </el-button>
                 <el-button
                   text
                   type="primary"
