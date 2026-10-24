@@ -1,6 +1,6 @@
 . (Join-Path $PSScriptRoot 'runtime-path.ps1')
 $ErrorActionPreference = 'Stop'
-$python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+$python = $script:ProjectPython
 Push-Location (Join-Path $PSScriptRoot 'backend')
 try {
     & $python -m alembic upgrade head
