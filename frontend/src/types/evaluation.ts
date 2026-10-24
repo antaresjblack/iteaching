@@ -131,6 +131,10 @@ export interface ComparisonResult {
     recording_id: string
     recorded_at: string
     overall_score: number | null
+    /** 已观察维度均分（六维不齐全时作为补充参考） */
+    observed_score: number | null
+    /** 已观察的维度数量 */
+    observed_count: number
     dimension_scores: Record<string, number | null>
   }
   previous: {
@@ -138,11 +142,15 @@ export interface ComparisonResult {
     recording_id: string
     recorded_at: string
     overall_score: number | null
+    observed_score: number | null
+    observed_count: number
     dimension_scores: Record<string, number | null>
   }
   delta: {
     /** 不可比或任一次总分缺失时为 null */
     overall_score: number | null
+    /** 两次覆盖维度一致且均分可得时才计算 */
+    observed_score: number | null
     dimension_scores: Partial<Record<DimensionKey, number | null>>
   }
 }

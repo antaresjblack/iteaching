@@ -10,12 +10,19 @@ vi.mock('echarts/core', () => ({ use: vi.fn(), init: vi.fn(() => chart) }))
 vi.mock('@/api/evaluations', () => ({ compareCourse: vi.fn(), readComparisonAnalysis: vi.fn(async () => ({ analysis: '两次课堂需加强反馈', version: 'comparison-v1' })), generateComparisonAnalysis: vi.fn(), getEvaluationById: vi.fn(async () => ({ problems: ['[pre_assessment] 检查不足'], suggestions: [{ text: '增加检查', source: 'ai' }], reviews: [{ id: 1, comment: '建议加强反馈', created_at: '2026-10-21T08:00:00Z' }], calibrations: [] })) }))
 
 function fixture(comparable = true): ComparisonResult {
-  const base = { evaluation_id: 1, recording_id: 'a', recorded_at: '2026-10-21T08:00:00Z', overall_score: null }
+  const base = {
+    evaluation_id: 1,
+    recording_id: 'a',
+    recorded_at: '2026-10-21T08:00:00Z',
+    overall_score: null,
+    observed_score: 30,
+    observed_count: 2,
+  }
   return {
     comparable, reason: comparable ? null : '评价标准不同',
     latest: { ...base, dimension_scores: { bridge_in: 60, objectives: null, pre_assessment: 0 } },
     previous: { ...base, dimension_scores: { bridge_in: 40, objectives: 50, pre_assessment: 0 } },
-    delta: { overall_score: null, dimension_scores: {} },
+    delta: { overall_score: null, observed_score: null, dimension_scores: {} },
   }
 }
 

@@ -122,6 +122,18 @@ def list_course_evaluations(
     }
 
 
+def observed_average(dimensions: dict[str, float | None]) -> tuple[float | None, int, list[str]]:
+    """已观察维度均分：返回均分、覆盖维度数与被覆盖的维度键。
+
+    六维不齐全时系统不计算总分（避免伪造），此处提供"已观察维度均分"作为补充参考。
+    """
+    scored = [key for key in DIMENSION_KEYS if dimensions.get(key) is not None]
+    if not scored:
+        return None, 0, []
+    average = round(sum(float(dimensions[key]) for key in scored) / len(scored), 2)
+    return average, len(scored), scored
+
+
 @router.get("/courses/{course_id}/comparison")
 def compare_recent_classes(
     course_id: int, user: CurrentUser, db: DatabaseSession
@@ -141,6 +153,14 @@ def compare_recent_classes(
     latest, previous = evaluations
     latest_overall, latest_dimensions = effective_scores(latest)
     previous_overall, previous_dimensions = effective_scores(previous)
+    latest_observed, latest_observed_count, latest_observed_keys = observed_average(
+        latest_dimensions
+    )
+    previous_observed, previous_observed_count, previous_observed_keys = observed_average(
+        previous_dimensions
+    )
+    # 仅当两次覆盖的维度完全一致时，均分差值才有可比性
+    observed_comparable = latest_observed_keys == previous_observed_keys
     latest_rubric = latest.raw_result.get("rubric_version") or "legacy-v1"
     previous_rubric = previous.raw_result.get("rubric_version") or "legacy-v1"
     comparable = latest_rubric == previous_rubric and latest.mode == previous.mode
@@ -156,6 +176,8 @@ def compare_recent_classes(
                 "recording_id": latest.recording_id,
                 "recorded_at": latest.recording.recorded_at,
                 "overall_score": latest_overall,
+                "observed_score": latest_observed,
+                "observed_count": latest_observed_count,
                 "dimension_scores": latest_dimensions,
             },
             "previous": {
@@ -163,12 +185,22 @@ def compare_recent_classes(
                 "recording_id": previous.recording_id,
                 "recorded_at": previous.recording.recorded_at,
                 "overall_score": previous_overall,
+                "observed_score": previous_observed,
+                "observed_count": previous_observed_count,
                 "dimension_scores": previous_dimensions,
             },
             "delta": {
                 "overall_score": (
                     latest_overall - previous_overall
                     if comparable and latest_overall is not None and previous_overall is not None
+                    else None
+                ),
+                "observed_score": (
+                    round(latest_observed - previous_observed, 2)
+                    if comparable
+                    and observed_comparable
+                    and latest_observed is not None
+                    and previous_observed is not None
                     else None
                 ),
                 "dimension_scores": {

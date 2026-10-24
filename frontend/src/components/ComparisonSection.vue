@@ -44,8 +44,19 @@ let resizeObserver: ResizeObserver | null = null
 const insufficient = computed(() => !loading.value && !error.value && result.value === null)
 
 /** 总分变化：可比且双方均有分数时显示带符号差值，否则显示占位 */
+const deltaValue = computed(() => {
+  const data = result.value
+  if (!data?.comparable) return null
+  return data.delta.overall_score ?? data.delta.observed_score ?? null
+})
+
+/** 总分不可得时，差值退化为“已观察维度均分”的变化 */
+const deltaIsObserved = computed(
+  () => result.value?.delta.overall_score == null && result.value?.delta.observed_score != null,
+)
+
 const deltaText = computed(() => {
-  const value = result.value?.comparable ? result.value.delta.overall_score : null
+  const value = deltaValue.value
   if (typeof value === 'number' && Number.isFinite(value)) {
     return `${value >= 0 ? '+' : ''}${value.toFixed(1)}`
   }
@@ -54,7 +65,7 @@ const deltaText = computed(() => {
 
 /** 总分变化的涨跌配色；null 时无涨跌 */
 const deltaClass = computed(() => {
-  const value = result.value?.comparable ? result.value.delta.overall_score : null
+  const value = deltaValue.value
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value >= 0 ? 'delta-up' : 'delta-down'
   }
@@ -93,6 +104,22 @@ function renderAnalysis(text: string): string {
 
 function validScore(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** 混合展示：完整总分优先，六维不齐时退回“已观察维度均分”，避免只显示占位符 */
+function sideScore(side: 'latest' | 'previous'): number | null {
+  const item = result.value?.[side]
+  if (!item) return null
+  return item.overall_score ?? item.observed_score
+}
+
+/** 变化条：差值为 0 时渲染居中细线，避免宽度为 0 而导致完全看不见 */
+function barStyle(change: number): Record<string, string> {
+  if (change === 0) return { left: 'calc(50% - 1px)', width: '2px' }
+  return {
+    left: `${change < 0 ? 50 + change / 2 : 50}%`,
+    width: `${Math.abs(change) / 2}%`,
+  }
 }
 
 const rows = computed(() => DIMENSION_KEYS.map((key) => {
@@ -235,19 +262,33 @@ onBeforeUnmount(() => {
 
       <div class="summary-cards">
         <div class="summary-card">
-          <div class="summary-label">本次总分</div>
-          <div class="summary-value tabular">{{ formatScore(result.latest.overall_score) }}</div>
-          <div class="summary-meta tabular">{{ formatDateTime(result.latest.recorded_at) }}</div>
+          <div class="summary-label">{{ result.latest.overall_score == null ? '本次均分' : '本次总分' }}</div>
+          <div class="summary-value tabular">{{ formatScore(sideScore('latest')) }}</div>
+          <div class="summary-meta tabular">
+            <template v-if="result.latest.overall_score == null">
+              已观察 {{ result.latest.observed_count }}/6 项 ·
+            </template>
+            {{ formatDateTime(result.latest.recorded_at) }}
+          </div>
         </div>
         <div class="summary-card">
-          <div class="summary-label">上次总分</div>
-          <div class="summary-value tabular">{{ formatScore(result.previous.overall_score) }}</div>
-          <div class="summary-meta tabular">{{ formatDateTime(result.previous.recorded_at) }}</div>
+          <div class="summary-label">{{ result.previous.overall_score == null ? '上次均分' : '上次总分' }}</div>
+          <div class="summary-value tabular">{{ formatScore(sideScore('previous')) }}</div>
+          <div class="summary-meta tabular">
+            <template v-if="result.previous.overall_score == null">
+              已观察 {{ result.previous.observed_count }}/6 项 ·
+            </template>
+            {{ formatDateTime(result.previous.recorded_at) }}
+          </div>
         </div>
         <div class="summary-card summary-card--delta">
-          <div class="summary-label">总分变化</div>
+          <div class="summary-label">{{ deltaIsObserved ? '均分变化' : '总分变化' }}</div>
           <div class="summary-value tabular" :class="deltaClass">{{ deltaText }}</div>
-          <div class="summary-meta">缺少完整总分时，请查看下方各维度变化</div>
+          <div class="summary-meta">
+            {{ deltaIsObserved
+              ? '六维不齐，按两次都已观察的维度均分对比'
+              : '缺少完整总分时，请查看下方各维度变化' }}
+          </div>
         </div>
       </div>
 
@@ -267,7 +308,7 @@ onBeforeUnmount(() => {
           <div v-for="row in comparableRows" :key="row.key" class="change-row">
             <span>{{ row.label }}</span>
             <div class="change-track" :aria-label="`${row.label}变化${row.delta}分`" role="img">
-              <i :class="row.change! < 0 ? 'negative' : 'positive'" :style="{ left: `${row.change! < 0 ? 50 + row.change! / 2 : 50}%`, width: `${Math.abs(row.change!) / 2}%` }" />
+              <i :class="row.change! < 0 ? 'negative' : 'positive'" :style="barStyle(row.change!)" />
             </div>
             <strong>{{ row.delta }}</strong>
           </div>
