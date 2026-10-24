@@ -24,9 +24,9 @@ function makeCourse(id: number, schedules: CourseSchedule[]): CourseRead {
 }
 
 describe('periodRange 时间段→节次映射', () => {
-  it('两节连上的时间段映射为跨 2 节（08:00-09:40 → 第 1-2 节）', () => {
+  it('两节连上的时间段映射为跨 2 节（08:30-10:10 → 第 1-2 节）', () => {
     // 标准两节连排：起止时间与节次表完全对齐
-    const result = periodRange({ weekday: 1, start_time: '08:00', end_time: '09:40' })
+    const result = periodRange({ weekday: 1, start_time: '08:30', end_time: '10:10' })
     expect(result).toEqual({ start: 1, span: 2 })
   })
 
@@ -36,9 +36,9 @@ describe('periodRange 时间段→节次映射', () => {
     expect(result).toEqual({ start: 5, span: 2 })
   })
 
-  it('四节连上的大段课程映射为跨 4 节（08:00-11:40 → 第 1-4 节）', () => {
+  it('四节连上的大段课程映射为跨 4 节（08:30-12:10 → 第 1-4 节）', () => {
     // 模拟参考图中的跨四节合并卡片
-    const result = periodRange({ weekday: 2, start_time: '08:00', end_time: '11:40' })
+    const result = periodRange({ weekday: 2, start_time: '08:30', end_time: '12:10' })
     expect(result).toEqual({ start: 1, span: 4 })
   })
 
@@ -54,8 +54,8 @@ describe('buildTimetableCards 网格布局计算', () => {
     // 周一 1-2 节与周三 3-4 节各一张卡片，colorIndex 相同
     const cards = buildTimetableCards([
       makeCourse(1, [
-        { weekday: 1, start_time: '08:00', end_time: '09:40', start_week: 1, end_week: 16 },
-        { weekday: 3, start_time: '10:00', end_time: '11:40' },
+        { weekday: 1, start_time: '08:30', end_time: '10:10', start_week: 1, end_week: 16 },
+        { weekday: 3, start_time: '10:30', end_time: '12:10' },
       ]),
     ])
     expect(cards).toHaveLength(2)
@@ -69,8 +69,8 @@ describe('buildTimetableCards 网格布局计算', () => {
   it('节次被其他课程占用时不再重复放置，避免卡片重叠', () => {
     // 课程 2 与课程 1 在周一第 1-2 节完全冲突，课程 2 的该时间段应被丢弃
     const cards = buildTimetableCards([
-      makeCourse(1, [{ weekday: 1, start_time: '08:00', end_time: '09:40' }]),
-      makeCourse(2, [{ weekday: 1, start_time: '08:00', end_time: '09:40' }]),
+      makeCourse(1, [{ weekday: 1, start_time: '08:30', end_time: '10:10' }]),
+      makeCourse(2, [{ weekday: 1, start_time: '08:30', end_time: '10:10' }]),
     ])
     expect(cards).toHaveLength(1)
     expect(cards[0]?.courseId).toBe(1)
@@ -79,8 +79,8 @@ describe('buildTimetableCards 网格布局计算', () => {
   it('部分冲突时截断到空闲节次', () => {
     // 课程 2 从第 2 节开始与课程 1 冲突：第 2 节被占，卡片截断丢弃（起始节次被占即整段跳过）
     const cards = buildTimetableCards([
-      makeCourse(1, [{ weekday: 2, start_time: '10:00', end_time: '11:40' }]),
-      makeCourse(3, [{ weekday: 2, start_time: '08:00', end_time: '11:40' }]),
+      makeCourse(1, [{ weekday: 2, start_time: '10:30', end_time: '12:10' }]),
+      makeCourse(3, [{ weekday: 2, start_time: '08:30', end_time: '12:10' }]),
     ])
     // 课程 1 先放置占第 3-4 节；课程 3 请求第 1-4 节，第 3 节冲突后截断为第 1-2 节
     expect(cards).toHaveLength(2)

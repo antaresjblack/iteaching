@@ -52,6 +52,8 @@ class TeachingLocation(StrEnum):
     ARCHITECTURE = "建筑"
     INFORMATION = "信息"
 
+    WENGUAN_A447 = "文管A447"
+
     # 1号楼教室
     BUILDING_1_101 = "1号楼101"
     BUILDING_1_102 = "1号楼102"

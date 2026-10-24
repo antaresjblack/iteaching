@@ -23,7 +23,7 @@ export function weekdayLabel(weekday: number): string {
   return WEEKDAY_LABELS[weekday - 1] ?? '—'
 }
 
-/** 多时间段 → "周一 08:00-09:40（第1-16周）；周三 14:00-15:40" */
+/** 多时间段 → "周一 08:30-10:10（第1-16周）；周三 14:00-15:40" */
 export function formatSchedules(schedules: CourseSchedule[] | null | undefined): string {
   if (!schedules || schedules.length === 0) return '—'
   return schedules
@@ -39,12 +39,12 @@ export function weekLabel(item: CourseSchedule): string {
     : `（第${item.start_week}-${item.end_week}周）`
 }
 
-/** 节次时间表：按第 X 节映射起止时间（第 3-4 节 → 10:00-11:40） */
+/** 节次时间表：按第 X 节映射起止时间（第 3-4 节 → 10:30-12:10） */
 export const PERIOD_TIMES = [
-  { start: '08:00', end: '08:45' },
-  { start: '08:55', end: '09:40' },
-  { start: '10:00', end: '10:45' },
-  { start: '10:55', end: '11:40' },
+  { start: '08:30', end: '09:15' },
+  { start: '09:25', end: '10:10' },
+  { start: '10:30', end: '11:15' },
+  { start: '11:25', end: '12:10' },
   { start: '14:00', end: '14:45' },
   { start: '14:55', end: '15:40' },
   { start: '16:00', end: '16:45' },

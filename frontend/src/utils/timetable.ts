@@ -39,7 +39,7 @@ function toMinutes(time: string): number {
 
 /**
  * 将一个授课时间段映射到节次区间。
- * 与节次时间有重叠的节次全部纳入（如 08:00-09:40 → 第 1-2 节，08:00-11:40 → 第 1-4 节）；
+ * 与节次时间有重叠的节次全部纳入（如 08:30-10:10 → 第 1-2 节，08:30-12:10 → 第 1-4 节）；
  * 完全落在节次表之外的时间（如晚间课）回退为时间上最接近的单节，保证卡片可见。
  */
 export function periodRange(schedule: CourseSchedule): { start: number; span: number } {

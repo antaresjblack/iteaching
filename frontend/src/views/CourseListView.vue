@@ -252,7 +252,7 @@ function resetForm(): void {
   form.classDept = ''
   form.classGrade = null
   form.classClasses = []
-  form.schedules = [{ weekday: 1, start_time: '08:00', end_time: '09:40' }]
+  form.schedules = [{ weekday: 1, start_time: '08:30', end_time: '10:10' }]
   form.assessmentForm = 'percent'
   form.description = ''
   form.teacherId = null
@@ -281,7 +281,7 @@ function openEdit(row: CourseRead): void {
   form.classClasses = parsed ? [...parsed.classes] : [row.class_name]
   form.schedules = row.schedules.length
     ? row.schedules.map((item) => ({ ...item }))
-    : [{ weekday: 1, start_time: '08:00', end_time: '09:40' }]
+    : [{ weekday: 1, start_time: '08:30', end_time: '10:10' }]
   form.assessmentForm = row.assessment_form
   form.description = row.description ?? ''
   form.teacherId = row.teacher_id
@@ -307,7 +307,7 @@ function openEdit(row: CourseRead): void {
 }
 
 function addSchedule(): void {
-  form.schedules.push({ weekday: 1, start_time: '08:00', end_time: '09:40' })
+  form.schedules.push({ weekday: 1, start_time: '08:30', end_time: '10:10' })
 }
 
 /** 按周批量添加：星期 + 节次范围 + 周次范围折算为一条时间段（范围内时间一致） */

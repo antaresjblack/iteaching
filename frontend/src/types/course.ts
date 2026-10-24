@@ -17,18 +17,18 @@ export const CLASSROOM_NUMBERS = ['101', '102', '103', '104', '105'] as const
 export const LOCATION_BUILDINGS: readonly LegacyLocation[] = ['1号楼', '生医', '文法', '建筑', '信息']
 
 /** 教室选项：教学楼 + 教室编号（模板字面量类型展开为 25 个组合） */
-export type ClassroomLocation = `${LegacyLocation}${(typeof CLASSROOM_NUMBERS)[number]}`
+export type ClassroomLocation = `${LegacyLocation}${(typeof CLASSROOM_NUMBERS)[number]}` | '文管A447'
 
 export type TeachingLocation = LegacyLocation | ClassroomLocation
 
 /** 按教学楼分组的教室选项，供下拉框 el-option-group 使用 */
 export const LOCATION_GROUPS: ReadonlyArray<{
-  building: LegacyLocation
+  building: LegacyLocation | '文管'
   rooms: ClassroomLocation[]
-}> = LOCATION_BUILDINGS.map((building) => ({
+}> = [...LOCATION_BUILDINGS.map((building) => ({
   building,
   rooms: CLASSROOM_NUMBERS.map((room) => `${building}${room}` as ClassroomLocation),
-}))
+})), { building: '文管', rooms: ['文管A447'] }]
 
 /** 全部教室选项（扁平列表，用于筛选栏等场景） */
 export const LOCATION_OPTIONS: readonly ClassroomLocation[] = LOCATION_GROUPS.flatMap(
